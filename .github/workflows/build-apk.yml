@@ -7,10 +7,13 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -23,49 +26,95 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
+        run: ./gradlew assembleDebug --stacktrace --no-daemon
 
-      - name: Locate APK
-        id: locate-apk
+      # Copy the APK out of the nested Gradle output folder and give it a clean,
+      # stable name so the artifact (and the release asset) is obviously the APK.
+      - name: Stage APK
+        id: stage
         run: |
-          echo "Searching for APK..."
-          find app/build/outputs -name "*.apk" -type f | tee apk_files.txt
-          APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
-          if [ -z "$APK_PATH" ]; then
-            APK_PATH=$(find app/build/outputs -name "*.apk" | head -n 1)
+          set -euo pipefail
+          mkdir -p dist
+
+          SRC=$(find app/build/outputs/apk -name "*.apk" -type f | head -n 1)
+          if [ -z "$SRC" ]; then
+            echo "::error::No APK was produced by assembleDebug"
+            exit 1
           fi
-          echo "APK_PATH=$APK_PATH" >> $GITHUB_ENV
-          echo "Found APK at: $APK_PATH"
-          ls -lh $APK_PATH || true
+
+          VERSION_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -n 1)
+          VERSION_CODE=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts | head -n 1)
+          VERSION_NAME=${VERSION_NAME:-0.0.0}
+          VERSION_CODE=${VERSION_CODE:-1}
+          SHA_SHORT=$(git rev-parse --short HEAD)
+
+          OUT="dist/Anek-Browser-v${VERSION_NAME}-${SHA_SHORT}-debug.apk"
+          cp "$SRC" "$OUT"
+          # A stable filename as well, so a permanent download URL always works.
+          cp "$SRC" "dist/Anek-Browser-debug.apk"
+
+          SIZE=$(du -h "$OUT" | cut -f1)
+          echo "apk_path=$OUT" >> "$GITHUB_OUTPUT"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "sha_short=$SHA_SHORT" >> "$GITHUB_OUTPUT"
+          echo "size=$SIZE" >> "$GITHUB_OUTPUT"
+          echo "✅ Built $OUT ($SIZE) — v$VERSION_NAME (code $VERSION_CODE) @ $SHA_SHORT"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Anek-Browser-APK
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/**/*.apk
-          retention-days: 14
+          name: Anek-Browser-debug-APK
+          path: dist/*.apk
+          retention-days: 30
           if-no-files-found: error
+
+      # Publish to a rolling "nightly" release on every push to main.
+      # This gives a permanent, no-login-required direct download URL:
+      #   https://github.com/ANEQH/Anek-browser/releases/download/nightly/Anek-Browser-debug.apk
+      - name: Publish to nightly release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: "Nightly build — v${{ steps.stage.outputs.version_name }} (${{ steps.stage.outputs.sha_short }})"
+          body: |
+            ## 📱 Direct APK download
+
+            **[Anek-Browser-debug.apk](https://github.com/ANEQH/Anek-browser/releases/download/nightly/Anek-Browser-debug.apk)**
+
+            | | |
+            |---|---|
+            | Version | `${{ steps.stage.outputs.version_name }}` (code ${{ steps.stage.outputs.version_code }}) |
+            | Commit | `${{ steps.stage.outputs.sha_short }}` |
+            | Size | ${{ steps.stage.outputs.size }} |
+            | Type | Debug build (signed with the debug keystore — installable directly) |
+            | Updated | ${{ github.event.head_commit.timestamp }} |
+
+            ### Install
+            1. Download the APK above.
+            2. Android will warn "unknown source" → allow it for your browser/file manager.
+            3. Tap the APK to install.
+
+            > ⚠️ This is an **automated nightly build** from the `main` branch. It is replaced on every push.
+          files: |
+            dist/Anek-Browser-debug.apk
+            dist/Anek-Browser-v${{ steps.stage.outputs.version_name }}-${{ steps.stage.outputs.sha_short }}-debug.apk
+          prerelease: true
+          overwrite_files: true
+          fail_on_unmatched_files: true
 
       - name: Upload build reports on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-reports
-          path: app/build/reports/
+          path: |
+            app/build/reports/
+            app/build/outputs/logs/
           retention-days: 7
+          if-no-files-found: ignore

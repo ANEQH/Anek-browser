@@ -22,6 +22,32 @@ android {
         }
     }
 
+    signingConfigs {
+        /*
+         * A real release keystore is used only when its details are supplied,
+         * either as environment variables (CI) or Gradle properties (local):
+         *
+         *   ANEK_STORE_FILE / ANEK_STORE_PASSWORD / ANEK_KEY_ALIAS / ANEK_KEY_PASSWORD
+         *
+         * Without them the release build falls back to the debug keystore (see
+         * buildTypes below). That is deliberate: AGP otherwise emits
+         * `app-release-unsigned.apk`, which Android refuses to install at all.
+         */
+        val storePath = System.getenv("ANEK_STORE_FILE")
+            ?: (project.findProperty("ANEK_STORE_FILE") as String?)
+        if (!storePath.isNullOrBlank()) {
+            create("release") {
+                storeFile = file(storePath)
+                storePassword = System.getenv("ANEK_STORE_PASSWORD")
+                    ?: (project.findProperty("ANEK_STORE_PASSWORD") as String?)
+                keyAlias = System.getenv("ANEK_KEY_ALIAS")
+                    ?: (project.findProperty("ANEK_KEY_ALIAS") as String?)
+                keyPassword = System.getenv("ANEK_KEY_PASSWORD")
+                    ?: (project.findProperty("ANEK_KEY_PASSWORD") as String?)
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -30,6 +56,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
         }
         debug {
             isMinifyEnabled = false

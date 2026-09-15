@@ -7,14 +7,17 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version name (e.g. 1.0.1)'
+        description: 'Version name (used only for the draft release title)'
         required: false
         default: '1.1.0'
+
+permissions:
+  contents: write
 
 jobs:
   build-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -27,32 +30,106 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+      # Optional real signing keystore. If these secrets are absent, the Gradle
+      # build falls back to the debug keystore so the APK is still installable
+      # (an *unsigned* APK cannot be installed on Android at all).
+      - name: Prepare signing keystore
+        env:
+          ANEK_KEYSTORE_BASE64: ${{ secrets.ANEK_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "${ANEK_KEYSTORE_BASE64:-}" ]; then
+            echo "ℹ️ No ANEK_KEYSTORE_BASE64 secret — release build will be signed with the debug keystore."
+            exit 0
+          fi
+          echo "$ANEK_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "ANEK_STORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          echo "🔐 Release keystore decoded."
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
-      - name: Build Release APK (unsigned)
-        run: ./gradlew assembleRelease --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
+      - name: Build Release APK
+        env:
+          ANEK_KEYSTORE_BASE64: ${{ secrets.ANEK_KEYSTORE_BASE64 }}
+          ANEK_STORE_FILE: ${{ env.ANEK_STORE_FILE }}
+          ANEK_STORE_PASSWORD: ${{ secrets.ANEK_STORE_PASSWORD }}
+          ANEK_KEY_ALIAS: ${{ secrets.ANEK_KEY_ALIAS }}
+          ANEK_KEY_PASSWORD: ${{ secrets.ANEK_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --stacktrace --no-daemon
 
-      - name: Upload Release APK
+      - name: Stage Release APK
+        id: stage
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          SRC=$(find app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
+          if [ -z "$SRC" ]; then
+            echo "::error::No release APK was produced"
+            exit 1
+          fi
+          case "$(basename "$SRC")" in
+            *unsigned*)
+              echo "::error::Release APK is UNSIGNED and cannot be installed. Add a signingConfig (see app/build.gradle.kts)."
+              exit 1
+              ;;
+          esac
+
+          VERSION_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -n 1)
+          VERSION_NAME=${VERSION_NAME:-0.0.0}
+
+          cp "$SRC" "dist/Anek-Browser-v${VERSION_NAME}.apk"
+          cp "$SRC" "dist/Anek-Browser-release.apk"
+
+          # Verify the APK really is signed, using the SDK's apksigner.
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -n "$BT" ] && [ -x "$BT/apksigner" ]; then
+            "$BT/apksigner" verify --print-certs "dist/Anek-Browser-v${VERSION_NAME}.apk" | head -n 5 || true
+          fi
+
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "size=$(du -h "dist/Anek-Browser-v${VERSION_NAME}.apk" | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Release APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Anek-Browser-Release-APK
-          path: app/build/outputs/apk/release/*.apk
-          retention-days: 30
+          name: Anek-Browser-release-APK
+          path: dist/*.apk
+          retention-days: 90
+          if-no-files-found: error
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/release/*.apk
+          name: "Anek Browser v${{ steps.stage.outputs.version_name }}"
+          tag_name: ${{ github.ref_name }}
+          body: |
+            ## 📱 Download
+
+            **[Anek-Browser-v${{ steps.stage.outputs.version_name }}.apk](https://github.com/ANEQH/Anek-browser/releases/download/${{ github.ref_name }}/Anek-Browser-v${{ steps.stage.outputs.version_name }}.apk)**
+
+            | | |
+            |---|---|
+            | Version | `${{ steps.stage.outputs.version_name }}` |
+            | Size | ${{ steps.stage.outputs.size }} |
+            | Type | Release build (minified + resource-shrunk) |
+          files: dist/*.apk
           generate_release_notes: true
+          fail_on_unmatched_files: true
+
+      # Manual runs (workflow_dispatch) have no tag, so publish to a rolling draft
+      # instead of silently throwing the APK away.
+      - name: Publish manual build
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: release-candidate
+          name: "Release candidate — v${{ steps.stage.outputs.version_name }}"
+          body: |
+            Manually triggered release build.
+            **[Download APK](https://github.com/ANEQH/Anek-browser/releases/download/release-candidate/Anek-Browser-release.apk)**
+          files: dist/*.apk
+          prerelease: true
+          overwrite_files: true
+          fail_on_unmatched_files: true
