@@ -45,6 +45,7 @@ import com.anek.browser.web.ConsoleLog
 import com.anek.browser.web.UserScriptEngine
 
 @SuppressLint("SetJavaScriptEnabled")
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WebViewComponent(
     tab: Tab,
