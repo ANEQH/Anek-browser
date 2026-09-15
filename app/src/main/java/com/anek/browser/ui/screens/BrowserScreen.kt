@@ -114,9 +114,16 @@ fun BrowserScreen(
         viewModel.setOmniboxFocused(false)
     }
 
-    Scaffold(
-        topBar = {
-            ChromeTopBar(
+    val toolbarAtBottom = settings.toolbarPosition.equals("BOTTOM", ignoreCase = true)
+
+    /*
+     * One definition of the omnibox + navigation cluster, dockable at the top or
+     * the bottom. Previously ChromeTopBar and BrowserBottomBar *both* rendered
+     * back / forward / reload / home / menu, which wasted about 56dp of a phone
+     * screen and ignored the persisted toolbarPosition setting completely.
+     */
+    val omnibar: @Composable (Modifier) -> Unit = { chromeModifier ->
+        ChromeTopBar(
                 tab = tab,
                 omniboxText = omniboxText,
                 onOmniboxTextChange = { viewModel.setOmniboxText(it) },
@@ -159,8 +166,14 @@ fun BrowserScreen(
                 tabCount = viewModel.tabs.collectAsState().value.size,
                 canGoBack = tab?.canGoBack ?: false,
                 canGoForward = tab?.canGoForward ?: false,
-                isLoading = tab?.isLoading ?: false
-            )
+                isLoading = tab?.isLoading ?: false,
+                modifier = chromeModifier
+        )
+    }
+
+    Scaffold(
+        topBar = {
+            if (!toolbarAtBottom) omnibar(Modifier.statusBarsPadding())
         },
         bottomBar = {
             Column {
@@ -190,26 +203,9 @@ fun BrowserScreen(
                     )
                 }
 
-                // Bottom toolbar only when omnibox not focused and not homepage
-                AnimatedVisibility(
-                    visible = !isOmniboxFocused && tab?.isHomePage() == false,
-                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
-                ) {
-                    BrowserBottomBar(
-                        tab = tab,
-                        onBack = { webViewInstance?.let { if (it.canGoBack()) it.goBack() } },
-                        onForward = { webViewInstance?.let { if (it.canGoForward()) it.goForward() } },
-                        onReload = {
-                            webViewInstance?.let { wv ->
-                                if (tab?.isLoading == true) wv.stopLoading() else wv.reload()
-                            }
-                        },
-                        onHome = onNavigateHome,
-                        onTabsClick = onTabsClick,
-                        onMenuClick = { showMenu = true },
-                        tabCount = viewModel.tabs.collectAsState().value.size
-                    )
+                // Bottom-docked omnibox + navigation (thumb-reachable, Via style).
+                if (toolbarAtBottom) {
+                    omnibar(Modifier.navigationBarsPadding())
                 }
             }
         },

@@ -76,6 +76,26 @@ jobs:
       # Publish to a rolling "nightly" release on every push to main.
       # This gives a permanent, no-login-required direct download URL:
       #   https://github.com/ANEQH/Anek-browser/releases/download/nightly/Anek-Browser-debug.apk
+      # Versioned filenames change every build, so old ones would otherwise pile
+      # up on the rolling release forever. Keep only the stable name.
+      - name: Remove stale assets from the nightly release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          CURRENT="Anek-Browser-v${{ steps.stage.outputs.version_name }}-${{ steps.stage.outputs.sha_short }}-debug.apk"
+          if ! gh release view nightly --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "No nightly release yet — nothing to clean."
+            exit 0
+          fi
+          gh release view nightly --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | while read -r name; do
+            if [ "$name" != "Anek-Browser-debug.apk" ] && [ "$name" != "$CURRENT" ]; then
+              echo "Removing stale asset: $name"
+              gh release delete-asset nightly "$name" --repo "$GITHUB_REPOSITORY" --yes || true
+            fi
+          done
+
       - name: Publish to nightly release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
