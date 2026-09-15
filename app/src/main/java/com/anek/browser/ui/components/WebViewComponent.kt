@@ -323,27 +323,25 @@ fun WebViewComponent(
                             // File upload support - Chrome-like
                             override fun onShowFileChooser(
                                 webView: WebView?,
-                                filePathCallback: ValueCallback<Array<Uri>>?,
+                                filePathCallbackParam: ValueCallback<Array<Uri>>?,
                                 fileChooserParams: FileChooserParams?
                             ): Boolean {
-                                this@apply.let { wv ->
-                                    if (filePathCallback == null) return false
-                                    this@WebViewComponent.filePathCallback?.onReceiveValue(null)
-                                    this@WebViewComponent.filePathCallback = filePathCallback
+                                if (filePathCallbackParam == null) return false
+                                filePathCallback?.onReceiveValue(null)
+                                filePathCallback = filePathCallbackParam
 
-                                    try {
-                                        val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
-                                            addCategory(Intent.CATEGORY_OPENABLE)
-                                            type = "*/*"
-                                        }
-                                        fileChooserLauncher.launch(intent)
-                                    } catch (_: Exception) {
-                                        this@WebViewComponent.filePathCallback = null
-                                        filePathCallback.onReceiveValue(null)
-                                        return false
+                                try {
+                                    val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                                        addCategory(Intent.CATEGORY_OPENABLE)
+                                        type = "*/*"
                                     }
-                                    return true
+                                    fileChooserLauncher.launch(intent)
+                                } catch (_: Exception) {
+                                    filePathCallback = null
+                                    filePathCallbackParam.onReceiveValue(null)
+                                    return false
                                 }
+                                return true
                             }
 
                             override fun onJsAlert(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
