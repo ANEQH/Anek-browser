@@ -11,13 +11,21 @@ A polished, fast, production-quality Android web browser built from scratch with
 
 ## 📱 Download the APK
 
-**[Direct download — latest nightly build](https://github.com/ANEQH/Anek-browser/releases/download/nightly/Anek-Browser-debug.apk)**
+| Build | Size | Link |
+|---|---|---|
+| **Release** (minified, recommended) | ~2 MB | **[Anek-Browser-release.apk](https://github.com/ANEQH/Anek-browser/releases/download/release-candidate/Anek-Browser-release.apk)** |
+| **Nightly debug** (auto-built on every push) | ~18 MB | **[Anek-Browser-debug.apk](https://github.com/ANEQH/Anek-browser/releases/download/nightly/Anek-Browser-debug.apk)** |
 
-Or browse all builds on the **[Releases page](https://github.com/ANEQH/Anek-browser/releases)**.
+All builds are on the **[Releases page](https://github.com/ANEQH/Anek-browser/releases)**.
 
-No GitHub login is required for the link above. Every push to `main` rebuilds and
+No GitHub login is required for either link. Every push to `main` rebuilds and
 replaces the `nightly` release automatically. Tagged versions (`v1.2.0`, …) get
-their own permanent release with a signed, minified APK.
+their own permanent release.
+
+Both APKs are signed with the **APK Signature Scheme v2**, so they install on
+every supported device (Android 7.0 / API 24 and newer). The release build is
+signed with the debug keystore until a real keystore is added — see
+[Signing](#-signing-a-release-build) below.
 
 ### Installing
 1. Download the APK on your phone.
@@ -31,6 +39,35 @@ their own permanent release with a signed, minified APK.
 > the APK was effectively unreachable. It is now published to a Release, which
 > is a plain public URL. See
 > [`.github/workflows/build-apk.yml`](.github/workflows/build-apk.yml).
+
+## 🔐 Signing a release build
+
+Without a keystore, `assembleRelease` produces `app-release-unsigned.apk`, which
+Android refuses to install at all. The build now falls back to the debug
+keystore so release APKs always install. For Play Store distribution add these
+repository secrets and the real keystore is used automatically:
+
+| Secret | Value |
+|---|---|
+| `ANEK_KEYSTORE_BASE64` | `base64 -w0 release.keystore` |
+| `ANEK_STORE_PASSWORD` | keystore password |
+| `ANEK_KEY_ALIAS` | key alias |
+| `ANEK_KEY_PASSWORD` | key password |
+
+Then push a tag (`git tag v1.2.0 && git push origin v1.2.0`) to publish a
+permanent versioned release.
+
+## ⚠️ A note on "extensions"
+
+Chrome and Edge extensions **cannot** run in Android's WebView — the platform
+exposes no extension runtime, no manifest loader and no background page. No
+Android WebView-based browser (Via, Kiwi aside, which ships its own patched
+Chromium) supports them directly.
+
+What Anek Browser offers instead is **user scripts**: your own JavaScript
+injected into matching pages. That covers most of what people actually use
+extensions for — removing banners, restyling layouts, adding buttons, dark
+modes, download helpers. See *Menu → User scripts*.
 
 ## ✨ What's New in v1.2.0
 
@@ -69,6 +106,15 @@ their own permanent release with a signed, minified APK.
 - **Image blocking**, **force-dark web content**, **keep screen on during video**.
 - **WebView warm-up** behind the splash screen, removing the 300–800 ms provider
   load from the first page.
+- **Voice search** — the mic icon was a `/* voice search */` placeholder; it now
+  really runs the system speech recogniser in both the omnibox and on the home
+  screen.
+- **Long-press link menu** — open, open in new tab, copy, share, download. Text
+  selection long-presses are untouched.
+- **Print / Save as PDF** from the menu.
+- **Toolbar position actually applies** — `BOTTOM` docks the omnibox within thumb
+  reach. Previously the top bar and the bottom bar both rendered the same
+  back/forward/reload/home/menu row, wasting ~56dp of screen.
 
 ## ✨ What's New in v1.1.0 - Chrome-like Upgrade
 
