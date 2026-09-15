@@ -25,6 +25,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.anek.browser.browser.OmniboxSuggestion
 import com.anek.browser.browser.Tab
+import com.anek.browser.utils.rememberVoiceSearchLauncher
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,6 +41,13 @@ fun ChromeOmnibox(
     modifier: Modifier = Modifier
 ) {
     val focusManager = LocalFocusManager.current
+
+    // Was a `/* voice search placeholder */` no-op button.
+    val startVoiceSearch = rememberVoiceSearchLauncher { spoken ->
+        focusManager.clearFocus()
+        onFocusChange(false)
+        onNavigate(spoken)
+    }
 
     Column(modifier = modifier) {
         Surface(
@@ -124,9 +132,13 @@ fun ChromeOmnibox(
                     }
                 }
 
-                if (text.isBlank() && !isFocused) {
-                    IconButton(onClick = { /* voice search placeholder */ }) {
-                        Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(20.dp))
+                if (text.isBlank()) {
+                    IconButton(onClick = startVoiceSearch) {
+                        Icon(
+                            Icons.Default.Mic,
+                            contentDescription = "Voice search",
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }

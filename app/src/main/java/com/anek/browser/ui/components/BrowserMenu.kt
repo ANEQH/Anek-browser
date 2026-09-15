@@ -26,6 +26,7 @@ fun BrowserMenuSheet(
     onSettings: () -> Unit,
     onAddShortcut: () -> Unit,
     onOpenExternally: () -> Unit,
+    onPrint: () -> Unit = {},
     onClose: () -> Unit,
     // --- v1.2.0 additions ---
     onNewTab: () -> Unit = {},
@@ -122,6 +123,20 @@ fun BrowserMenuSheet(
             text = { Text("Open in other app") },
             onClick = onOpenExternally,
             leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) }
+        )
+        DropdownMenuItem(
+            text = {
+                Column {
+                    Text("Print / Save as PDF")
+                    Text(
+                        "Choose \"Save as PDF\" as the printer",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            onClick = onPrint,
+            leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) }
         )
 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))

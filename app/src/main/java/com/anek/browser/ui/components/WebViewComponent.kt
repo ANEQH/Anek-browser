@@ -29,13 +29,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.anek.browser.browser.Tab
 import com.anek.browser.data.datastore.BrowserSettings
 import com.anek.browser.downloads.DownloadHandler
 import com.anek.browser.utils.Constants
+import com.anek.browser.utils.shareText
 import com.anek.browser.web.AdBlocker
 import com.anek.browser.web.ConsoleLevel
 import com.anek.browser.web.ConsoleLog
@@ -73,6 +76,9 @@ fun WebViewComponent(
     var customView by remember { mutableStateOf<android.view.View?>(null) }
     var customViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
     var filePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+
+    /** Target of a long-press on a link or image, for the context menu. */
+    val linkTargetState = remember { mutableStateOf<LinkTarget?>(null) }
 
     /*
      * Mirrors of the settings/callbacks captured at factory time.
@@ -546,6 +552,53 @@ fun WebViewComponent(
                             DownloadHandler.downloadFile(ctx, url, userAgent, contentDisposition, mimetype)
                         }
 
+                        /*
+                         * Long-press a link or image to get a context menu.
+                         *
+                         * Returning false for anything that is not a link/image
+                         * leaves WebView's own long-press handling (text
+                         * selection, spellcheck) untouched.
+                         */
+                        setOnLongClickListener {
+                            val hit = hitTestResult
+                            when (hit?.type) {
+                                WebView.HitTestResult.SRC_ANCHOR_TYPE -> {
+                                    val u = hit.extra
+                                    if (u.isNullOrBlank()) false
+                                    else {
+                                        linkTargetState.value = LinkTarget(u, isImage = false)
+                                        performHapticFeedback(
+                                            android.view.HapticFeedbackConstants.LONG_PRESS
+                                        )
+                                        true
+                                    }
+                                }
+                                WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> {
+                                    val u = hit.extra
+                                    if (u.isNullOrBlank()) false
+                                    else {
+                                        linkTargetState.value = LinkTarget(u, isImage = true)
+                                        performHapticFeedback(
+                                            android.view.HapticFeedbackConstants.LONG_PRESS
+                                        )
+                                        true
+                                    }
+                                }
+                                WebView.HitTestResult.IMAGE_TYPE -> {
+                                    val u = hit.extra
+                                    if (u.isNullOrBlank()) false
+                                    else {
+                                        linkTargetState.value = LinkTarget(u, isImage = true)
+                                        performHapticFeedback(
+                                            android.view.HapticFeedbackConstants.LONG_PRESS
+                                        )
+                                        true
+                                    }
+                                }
+                                else -> false
+                            }
+                        }
+
                         setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
                             findResultRef.value(activeMatchOrdinal, numberOfMatches)
                         }
@@ -657,7 +710,78 @@ fun WebViewComponent(
                 }
             }
         }
+
+        // Long-press context menu for links and images.
+        linkTargetState.value?.let { target ->
+            val clipboard = LocalClipboardManager.current
+            ModalBottomSheet(
+                onDismissRequest = { linkTargetState.value = null },
+                containerColor = MaterialTheme.colorScheme.surfaceContainer
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(bottom = 16.dp)
+                ) {
+                    Text(
+                        text = target.url,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                    )
+                    HorizontalDivider(Modifier.padding(vertical = 6.dp))
+
+                    LinkMenuItem(Icons.Default.OpenInNew, "Open") {
+                        webViewRef?.loadUrl(target.url)
+                        linkTargetState.value = null
+                    }
+                    LinkMenuItem(Icons.Default.Add, "Open in new tab") {
+                        newTabRef.value(target.url)
+                        linkTargetState.value = null
+                    }
+                    LinkMenuItem(Icons.Default.ContentCopy, "Copy link") {
+                        clipboard.setText(AnnotatedString(target.url))
+                        linkTargetState.value = null
+                    }
+                    LinkMenuItem(Icons.Default.Share, "Share") {
+                        context.shareText(target.url)
+                        linkTargetState.value = null
+                    }
+                    LinkMenuItem(
+                        if (target.isImage) Icons.Default.Image else Icons.Default.Download,
+                        if (target.isImage) "Download image" else "Download link"
+                    ) {
+                        DownloadHandler.downloadFile(
+                            context,
+                            target.url,
+                            webViewRef?.settings?.userAgentString ?: "",
+                            null,
+                            if (target.isImage) "image/*" else null
+                        )
+                        linkTargetState.value = null
+                    }
+                }
+            }
+        }
     }
+}
+
+/** What a long-press landed on. */
+data class LinkTarget(val url: String, val isImage: Boolean = false)
+
+@Composable
+private fun LinkMenuItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        onClick = onClick,
+        leadingIcon = { Icon(icon, contentDescription = null) }
+    )
 }
 
 /** `true` when two URLs point at the same resource, ignoring fragment and trailing slash. */

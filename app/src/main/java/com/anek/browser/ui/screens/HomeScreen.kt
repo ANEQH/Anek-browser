@@ -47,6 +47,13 @@ fun HomeScreen(
 ) {
     var searchText by remember { mutableStateOf("") }
 
+    // Was a `/* voice search */` no-op; the mic icon now really listens.
+    // Declared after searchText so the lambda can reference it.
+    val startVoiceSearch = com.anek.browser.utils.rememberVoiceSearchLauncher { spoken ->
+        searchText = ""
+        onSearch(spoken)
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -141,7 +148,9 @@ fun HomeScreen(
                             Icon(Icons.Default.ArrowForward, contentDescription = "Go")
                         }
                     } else {
-                        IconButton(onClick = { /* voice search */ }) {
+                        IconButton(onClick = {
+                            startVoiceSearch()
+                        }) {
                             Icon(Icons.Default.Mic, contentDescription = "Voice search")
                         }
                     }

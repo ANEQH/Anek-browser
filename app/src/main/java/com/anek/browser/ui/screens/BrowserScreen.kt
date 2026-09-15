@@ -370,6 +370,39 @@ fun BrowserScreen(
                         tab?.let { context.openUrlExternally(it.url) }
                         showMenu = false
                     },
+                    onPrint = {
+                        showMenu = false
+                        val wv = webViewInstance
+                        if (wv == null) {
+                            Toast.makeText(context, "No page loaded", Toast.LENGTH_SHORT).show()
+                        } else {
+                            try {
+                                val printManager = context.getSystemService(
+                                    android.content.Context.PRINT_SERVICE
+                                ) as android.print.PrintManager
+                                val jobName = "AnekBrowser - ${tab?.displayTitle() ?: "page"}"
+                                val adapter = wv.createPrintDocumentAdapter(jobName)
+                                printManager.print(
+                                    jobName,
+                                    adapter,
+                                    android.print.PrintAttributes.Builder()
+                                        .setMediaSize(android.print.PrintAttributes.MediaSize.ISO_A4)
+                                        .setResolution(
+                                            android.print.PrintAttributes.Resolution(
+                                                "pdf", "pdf", 300, 300
+                                            )
+                                        )
+                                        .build()
+                                )
+                            } catch (e: Exception) {
+                                Toast.makeText(
+                                    context,
+                                    "Print failed: ${e.message}",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    },
                     onNewTab = {
                         viewModel.addTab()
                         showMenu = false
