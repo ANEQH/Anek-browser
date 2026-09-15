@@ -1,0 +1,49 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Background circle -->
+    <path
+        android:fillColor="#6750A4"
+        android:pathData="M0,0h108v108h-108z" />
+    <!-- Browser outer shape -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M24,28C24,23.58 27.58,20 32,20L76,20C80.42,20 84,23.58 84,28L84,76C84,80.42 80.42,84 76,84L32,84C27.58,84 24,80.42 24,76L24,28Z"
+        android:strokeColor="#00000000"
+        android:strokeWidth="1"/>
+    <!-- Top bar -->
+    <path
+        android:fillColor="#E8DEF8"
+        android:pathData="M24,28L84,28L84,40L24,40Z" />
+    <!-- Dots -->
+    <path
+        android:fillColor="#FF0000"
+        android:pathData="M30,32a3,3 0 1,0 6,0a3,3 0 1,0 -6,0" />
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M40,32a3,3 0 1,0 6,0a3,3 0 1,0 -6,0" />
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M50,32a3,3 0 1,0 6,0a3,3 0 1,0 -6,0" />
+    <!-- Globe / A -->
+    <path
+        android:fillColor="#6750A4"
+        android:pathData="M54,48C60.63,48 66,53.37 66,60C66,66.63 60.63,72 54,72C47.37,72 42,66.63 42,60C42,53.37 47.37,48 54,48Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"/>
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#6750A4"
+        android:strokeWidth="1.2"
+        android:pathData="M54,48 C57,52 57,68 54,72 M42,60 L66,60 M46,52 L62,52 M46,68 L62,68" />
+    <!-- Letter A overlay -->
+    <group
+        android:translateX="54"
+        android:translateY="61">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M-6,6 L-2,-6 L2,-6 L6,6 L3.5,6 L2.5,3 L-2.5,3 L-3.5,6 Z M-1.8,0 L1.8,0 L0,-5 Z" />
+    </group>
+</vector>

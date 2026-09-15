@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="app_webview/" />
+        <exclude domain="database" path="anek_browser.db" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="app_webview/" />
+    </device-transfer>
+</data-extraction-rules>

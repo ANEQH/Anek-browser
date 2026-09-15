@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Exclude WebView data from backup -->
+    <exclude domain="file" path="app_webview/" />
+    <exclude domain="database" path="anek_browser.db" />
+</full-backup-content>

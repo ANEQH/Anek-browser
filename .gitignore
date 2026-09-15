@@ -1,0 +1,55 @@
+# Gradle
+.gradle/
+build/
+app/build/
+*/build/
+*.apk
+*.aab
+
+# Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+local.properties
+*.jks
+*.keystore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+*.hprof
+
+# Kotlin
+.kotlin/
+
+# Node (if any web assets)
+node_modules/
+
+# Android SDK - keep local.properties out
+# local.properties already ignored above
+
+# Secrets
+*.env
+secrets.properties
+google-services.json
+
+# Temp
+tmp/
+.tmp/
+*.tmp
+*.temp
+
+# Coverage
+coverage/
+jacoco/
+
+# Generated
+generated/
+
+android-sdk/
+.android/
+anek-browser-debug.apk
