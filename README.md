@@ -5,9 +5,70 @@ A polished, fast, production-quality Android web browser built from scratch with
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Min SDK](https://img.shields.io/badge/minSdk-24-green.svg)
 ![Target SDK](https://img.shields.io/badge/targetSdk-34-green.svg)
-![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)
+![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)
 ![Kotlin](https://img.shields.io/badge/kotlin-1.9.22-purple.svg)
 ![Compose](https://img.shields.io/badge/compose-BOM%202024.09.02-blue.svg)
+
+## 📱 Download the APK
+
+**[Direct download — latest nightly build](https://github.com/ANEQH/Anek-browser/releases/download/nightly/Anek-Browser-debug.apk)**
+
+Or browse all builds on the **[Releases page](https://github.com/ANEQH/Anek-browser/releases)**.
+
+No GitHub login is required for the link above. Every push to `main` rebuilds and
+replaces the `nightly` release automatically. Tagged versions (`v1.2.0`, …) get
+their own permanent release with a signed, minified APK.
+
+### Installing
+1. Download the APK on your phone.
+2. Android will warn about apps from unknown sources — allow it for your browser
+   or file manager.
+3. Tap the downloaded APK to install.
+
+> **Where the APK was hiding before:** the build had always succeeded, but the
+> output was only available as a GitHub Actions *artifact*. Artifacts sit behind
+> a login wall, are wrapped in a ZIP, and are nested in a `debug/` folder — so
+> the APK was effectively unreachable. It is now published to a Release, which
+> is a plain public URL. See
+> [`.github/workflows/build-apk.yml`](.github/workflows/build-apk.yml).
+
+## ✨ What's New in v1.2.0
+
+### Fixed
+- **Back / Forward / Reload / Find-next were dead.** The screen held a WebView
+  reference that was never assigned, so every navigation button silently did
+  nothing.
+- **Pages reloaded whenever you opened Settings, Tabs, History or Bookmarks.**
+  The WebView was destroyed on navigation; the browser screen now stays mounted
+  and the other screens render on top of it.
+- **Scroll jank.** The view layer was writing navigation state on every
+  recomposition, feeding a recomposition loop. It now only writes on change.
+- **`target="_blank"` leaked a renderer per popup** and never actually opened a
+  new tab.
+- **Camera / mic / location never worked** — every site permission request was
+  auto-denied. They now show a proper prompt.
+- **Release APKs were unsigned** and therefore uninstallable. A signing config
+  now exists, with a debug-keystore fallback when no keystore is configured.
+- Tab restore raced with tab auto-save and could resurrect stale tabs.
+- WebView remote debugging was **always on in release builds** (anyone with a
+  USB cable could inspect your traffic). It is now an opt-in Developer option.
+- `toolbar position`, `on startup` and `homepage` settings were saved but never
+  applied; the search-engine picker rendered every option twice.
+
+### Added
+- **Ad & tracker blocking** at the network layer, with a live blocked counter
+  and a custom blocklist that supports `@allow` exceptions.
+- **User scripts** — inject your own JavaScript per-site. This is the realistic
+  equivalent of extensions: Chrome/Edge extensions **cannot** run in Android's
+  WebView because the platform has no extension runtime.
+- **Developer options** — runtime/device/WebView diagnostics, remote debugging
+  with `chrome://inspect` instructions, live console capture, performance
+  overlay, page-source viewer, a JavaScript console, hard reload, feature flags
+  and built-in test pages (video, WebGL, viewport, speed).
+- **Data saver** — strips `utm_*`, `fbclid`, `gclid` and similar tracking params.
+- **Image blocking**, **force-dark web content**, **keep screen on during video**.
+- **WebView warm-up** behind the splash screen, removing the 300–800 ms provider
+  load from the first page.
 
 ## ✨ What's New in v1.1.0 - Chrome-like Upgrade
 

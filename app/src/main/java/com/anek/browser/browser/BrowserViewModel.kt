@@ -579,7 +579,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     // --- Blocking ----------------------------------------------------------
 
     /** Parses the user blocklist once per settings change instead of per request. */
-    val customBlockDomains: Set<String> = settings
+    val customBlockDomains: StateFlow<Set<String>> = settings
         .map { AdBlocker.parseCustomList(it.customBlocklist) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 

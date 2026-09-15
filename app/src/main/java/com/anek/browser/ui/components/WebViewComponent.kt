@@ -632,7 +632,7 @@ fun WebViewComponent(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(android.graphics.Color.BLACK)
+                        .background(androidx.compose.ui.graphics.Color.Black)
                 ) {
                     AndroidView(
                         factory = { view },
@@ -669,18 +669,22 @@ private fun urlsEquivalent(a: String, b: String): Boolean {
 /**
  * Applies WebView's darkening of web content.
  *
- * `setAlgorithmicDarkeningAllowed` (API 33+ / Chrome 105+) supersedes the
- * deprecated `setForceDark`. Both are wrapped because a missing or outdated
- * WebView provider throws rather than no-ops.
+ * Both helpers live on `WebSettingsCompat` (not `WebViewCompat`) in
+ * androidx.webkit. `setAlgorithmicDarkeningAllowed` (API 33+ / Chrome 105+)
+ * supersedes the deprecated `setForceDark`. Both are wrapped because a missing
+ * or outdated WebView provider throws rather than no-ops.
  */
 @Suppress("DEPRECATION")
 private fun applyForceDark(webView: WebView, s: BrowserSettings) {
     try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            androidx.webkit.WebViewCompat.setAlgorithmicDarkeningAllowed(webView, s.forceDarkWebContent)
+            androidx.webkit.WebSettingsCompat.setAlgorithmicDarkeningAllowed(
+                webView.settings,
+                s.forceDarkWebContent
+            )
         } else {
-            androidx.webkit.WebViewCompat.setForceDark(
-                webView,
+            androidx.webkit.WebSettingsCompat.setForceDark(
+                webView.settings,
                 if (s.forceDarkWebContent) androidx.webkit.WebSettingsCompat.FORCE_DARK_ON
                 else androidx.webkit.WebSettingsCompat.FORCE_DARK_OFF
             )

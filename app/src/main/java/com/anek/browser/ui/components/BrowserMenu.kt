@@ -142,10 +142,18 @@ fun BrowserMenuSheet(
             leadingIcon = { Icon(Icons.Default.Bookmarks, contentDescription = null) }
         )
         DropdownMenuItem(
-            text = { Text("User scripts") },
+            text = {
+                Column {
+                    Text("User scripts")
+                    Text(
+                        "Inject JavaScript into pages",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
             onClick = onUserScripts,
-            leadingIcon = { Icon(Icons.Default.Code, contentDescription = null) },
-            supportingText = { Text("Inject JavaScript into pages") }
+            leadingIcon = { Icon(Icons.Default.Code, contentDescription = null) }
         )
 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))

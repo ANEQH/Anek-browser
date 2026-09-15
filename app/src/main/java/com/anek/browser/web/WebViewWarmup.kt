@@ -73,11 +73,14 @@ object WebViewWarmup {
     }
 
     /** `true` when the installed provider supports the modern dark-mode API. */
-    fun supportsForceDark(): Boolean = try {
-        val name = WebView.getCurrentWebViewPackage()?.versionName ?: return false
-        val major = name.substringBefore('.').toIntOrNull() ?: 0
-        major >= Constants.MIN_CHROME_MAJOR_FOR_FORCE_DARK
-    } catch (_: Throwable) {
-        false
+    fun supportsForceDark(): Boolean {
+        return try {
+            val name = WebView.getCurrentWebViewPackage()?.versionName
+            if (name == null) return false
+            val major = name.substringBefore('.').toIntOrNull() ?: 0
+            major >= Constants.MIN_CHROME_MAJOR_FOR_FORCE_DARK
+        } catch (_: Throwable) {
+            false
+        }
     }
 }

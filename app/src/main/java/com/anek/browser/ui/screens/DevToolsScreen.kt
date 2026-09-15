@@ -79,7 +79,7 @@ fun DevToolsScreen(
                 },
                 actions = {
                     IconButton(onClick = { showJsConsole = true }) {
-                        Icon(Icons.Default.Terminal, contentDescription = "Run JavaScript")
+                        Icon(Icons.Default.BugReport, contentDescription = "Run JavaScript")
                     }
                 }
             )
