@@ -1,5 +1,6 @@
 package com.anek.browser.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -52,7 +53,8 @@ fun HomeScreen(
             .background(
                 if (showWallpaper) Brush.verticalGradient(
                     listOf(
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f),
+                        MaterialTheme.colorScheme.surface,
                         MaterialTheme.colorScheme.surface
                     )
                 ) else Brush.verticalGradient(
@@ -66,9 +68,9 @@ fun HomeScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(16.dp))
 
-            // Logo / Title
+            // Chrome-like logo / Title with animation
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
@@ -77,23 +79,31 @@ fun HomeScreen(
                 Surface(
                     shape = CircleShape,
                     color = SeedColor,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(56.dp),
+                    shadowElevation = 4.dp
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Text("A", color = Color.White, style = MaterialTheme.typography.headlineMedium)
+                        Text("A", color = Color.White, style = MaterialTheme.typography.headlineLarge)
                     }
                 }
                 Spacer(Modifier.width(12.dp))
-                Text("Anek Browser", style = MaterialTheme.typography.headlineMedium)
+                Column {
+                    Text("Anek Browser", style = MaterialTheme.typography.headlineSmall)
+                    Text(
+                        "Fast • Secure • Private",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(28.dp))
 
-            // Search bar
-            Surface(
+            // Chrome-like search bar - centered, large
+            Card(
                 shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                tonalElevation = 2.dp,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -103,7 +113,12 @@ fun HomeScreen(
                         .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp)
+                    )
                     Spacer(Modifier.width(12.dp))
                     TextField(
                         value = searchText,
@@ -125,43 +140,55 @@ fun HomeScreen(
                         }) {
                             Icon(Icons.Default.ArrowForward, contentDescription = "Go")
                         }
+                    } else {
+                        IconButton(onClick = { /* voice search */ }) {
+                            Icon(Icons.Default.Mic, contentDescription = "Voice search")
+                        }
                     }
                 }
             }
 
             Spacer(Modifier.height(24.dp))
 
-            // Quick access
+            // Quick access - Chrome-like 4x2 grid with favicons
             if (showShortcuts) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Quick access", style = MaterialTheme.typography.titleMedium)
-                    TextButton(onClick = onAddShortcut) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Add")
+                    Text("Shortcuts", style = MaterialTheme.typography.titleMedium)
+                    Row {
+                        TextButton(onClick = onAddShortcut) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Add")
+                        }
                     }
                 }
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
 
                 if (shortcuts.isEmpty()) {
-                    Surface(
+                    Card(
                         shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
                             modifier = Modifier.padding(24.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(32.dp))
-                            Spacer(Modifier.height(8.dp))
-                            Text("No shortcuts yet", style = MaterialTheme.typography.bodyMedium)
-                            Text("Tap Add to create shortcuts", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Default.AddCircleOutline, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                            Spacer(Modifier.height(12.dp))
+                            Text("No shortcuts yet", style = MaterialTheme.typography.titleSmall)
+                            Text("Add your favorite sites for quick access", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.height(12.dp))
+                            FilledTonalButton(onClick = onAddShortcut) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Add shortcut")
+                            }
                         }
                     }
                 } else {
@@ -170,8 +197,9 @@ fun HomeScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(max = 400.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        userScrollEnabled = false
                     ) {
                         items(shortcuts) { shortcut ->
                             ShortcutItem(
@@ -180,18 +208,50 @@ fun HomeScreen(
                                 onLongPress = { onShortcutLongPress(shortcut) }
                             )
                         }
+                        item {
+                            // Add shortcut card
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable(onClick = onAddShortcut)
+                                    .padding(8.dp)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.Add, contentDescription = "Add", modifier = Modifier.size(24.dp))
+                                    }
+                                }
+                                Spacer(Modifier.height(6.dp))
+                                Text("Add", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                            }
+                        }
                     }
                 }
 
                 Spacer(Modifier.height(24.dp))
             }
 
-            // Recently visited
+            // Discover / Recent - Chrome-like cards
             if (showRecent && recentHistory.isNotEmpty()) {
-                Text("Recently visited", style = MaterialTheme.typography.titleMedium)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Recent", style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = { /* see all */ }) {
+                        Text("See more")
+                    }
+                }
                 Spacer(Modifier.height(12.dp))
                 LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(end = 16.dp)
                 ) {
                     items(recentHistory.take(10)) { item ->
                         RecentItem(item = item, onClick = { onHistoryClick(item) })
@@ -200,13 +260,42 @@ fun HomeScreen(
                 Spacer(Modifier.height(24.dp))
             }
 
-            // Bookmarks
+            // Bookmarks - Chrome-like list
             if (bookmarks.isNotEmpty()) {
                 Text("Bookmarks", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(12.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    bookmarks.take(5).forEach { bm ->
-                        BookmarkHomeItem(bookmark = bm, onClick = { onBookmarkClick(bm) })
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        bookmarks.take(5).forEach { bm ->
+                            BookmarkHomeItem(bookmark = bm, onClick = { onBookmarkClick(bm) })
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+
+            // Chrome-like info cards
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Shield, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Browse securely", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "Your privacy is protected. Incognito mode doesn't save history.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -231,15 +320,16 @@ fun ShortcutItem(
             .padding(8.dp)
     ) {
         Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            modifier = Modifier.size(48.dp)
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.size(48.dp),
+            shadowElevation = 1.dp
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Text(
-                    shortcut.title.take(1).uppercase(),
+                    shortcut.title.take(2).uppercase(),
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
         }
@@ -258,9 +348,10 @@ fun RecentItem(
     item: HistoryEntity,
     onClick: () -> Unit
 ) {
-    Surface(
+    Card(
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier
             .width(160.dp)
             .clickable(onClick = onClick)
@@ -268,15 +359,15 @@ fun RecentItem(
         Column(modifier = Modifier.padding(12.dp)) {
             Surface(
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                 modifier = Modifier.size(32.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            Text(item.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(10.dp))
+            Text(item.title.ifBlank { item.url }, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, minLines = 2)
             Spacer(Modifier.height(4.dp))
             Text(item.url, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -290,7 +381,7 @@ fun BookmarkHomeItem(
 ) {
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        color = Color.Transparent,
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
@@ -299,12 +390,21 @@ fun BookmarkHomeItem(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Default.Star, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                modifier = Modifier.size(36.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Star, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                }
+            }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(bookmark.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
                 Text(bookmark.url, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            Icon(Icons.Default.ChevronRight, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

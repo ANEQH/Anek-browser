@@ -1,7 +1,9 @@
 package com.anek.browser.ui.components
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.net.http.SslError
@@ -11,11 +13,18 @@ import android.view.ViewGroup
 import android.webkit.*
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -40,6 +49,7 @@ fun WebViewComponent(
     findQuery: String = "",
     isFindActive: Boolean = false,
     onFindResult: (Int, Int) -> Unit = { _, _ -> },
+    onShowFileChooser: ((ValueCallback<Array<Uri>>, Intent) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -48,6 +58,25 @@ fun WebViewComponent(
     var sslErrorState by remember { mutableStateOf<SslError?>(null) }
     var customView by remember { mutableStateOf<android.view.View?>(null) }
     var customViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
+    var filePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+
+    val fileChooserLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data
+        val uris = when {
+            result.resultCode != Activity.RESULT_OK -> null
+            data?.clipData != null -> {
+                Array(data.clipData!!.itemCount) { i ->
+                    data.clipData!!.getItemAt(i).uri
+                }
+            }
+            data?.data != null -> arrayOf(data.data!!)
+            else -> null
+        }
+        filePathCallback?.onReceiveValue(uris)
+        filePathCallback = null
+    }
 
     LaunchedEffect(findQuery, isFindActive) {
         webViewRef?.let { wv ->
@@ -100,6 +129,7 @@ fun WebViewComponent(
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
 
+                        // Security hardening - remove risky JS interfaces
                         removeJavascriptInterface("searchBoxJavaBridge_")
                         removeJavascriptInterface("accessibility")
                         removeJavascriptInterface("accessibilityTraversal")
@@ -109,7 +139,7 @@ fun WebViewComponent(
                         ws.domStorageEnabled = true
                         ws.databaseEnabled = true
                         ws.allowFileAccess = false
-                        ws.allowContentAccess = false
+                        ws.allowContentAccess = true
                         ws.allowFileAccessFromFileURLs = false
                         ws.allowUniversalAccessFromFileURLs = false
                         ws.javaScriptCanOpenWindowsAutomatically = true
@@ -123,6 +153,12 @@ fun WebViewComponent(
                         ws.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                         ws.cacheMode = WebSettings.LOAD_DEFAULT
                         ws.userAgentString = buildUserAgent(browserSettings, tab.isDesktopMode, ctx)
+                        ws.mediaPlaybackRequiresUserGesture = false
+                        ws.offscreenPreRaster = true
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            ws.safeBrowsingEnabled = browserSettings.safeBrowsing
+                        }
 
                         val cookieManager = CookieManager.getInstance()
                         cookieManager.setAcceptCookie(true)
@@ -131,10 +167,11 @@ fun WebViewComponent(
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                                 val url = request?.url?.toString() ?: return false
-                                if (url.startsWith("intent://") || url.startsWith("market://") || url.startsWith("tel:") || url.startsWith("mailto:")) {
+                                // Handle external schemes
+                                if (url.startsWith("intent://") || url.startsWith("market://") || url.startsWith("tel:") || url.startsWith("mailto:") || url.startsWith("sms:")) {
                                     return try {
-                                        ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                         })
                                         true
                                     } catch (_: Exception) { false }
@@ -224,6 +261,11 @@ fun WebViewComponent(
                                 title?.let { onTitleChanged(it) }
                             }
 
+                            override fun onReceivedIcon(view: WebView?, icon: Bitmap?) {
+                                super.onReceivedIcon(view, icon)
+                                // Favicon handling - we could save icon url
+                            }
+
                             override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
                                 onRequestPermission("geolocation") { granted ->
                                     if (granted) callback?.invoke(origin, true, false)
@@ -262,18 +304,63 @@ fun WebViewComponent(
 
                             override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?): Boolean {
                                 val newWebView = WebView(ctx).apply {
-                                    settings.javaScriptEnabled = true
-                                    webViewClient = WebViewClient()
+                                    settings.javaScriptEnabled = browserSettings.javaScriptEnabled
+                                    webViewClient = object : WebViewClient() {
+                                        override fun shouldOverrideUrlLoading(v: WebView?, request: WebResourceRequest?): Boolean {
+                                            val url = request?.url?.toString() ?: return false
+                                            // Open in new tab - for now load in current
+                                            view?.loadUrl(url)
+                                            return true
+                                        }
+                                    }
                                 }
                                 val transport = resultMsg?.obj as? WebView.WebViewTransport
                                 transport?.webView = newWebView
                                 resultMsg?.sendToTarget()
                                 return true
                             }
+
+                            // File upload support - Chrome-like
+                            override fun onShowFileChooser(
+                                webView: WebView?,
+                                filePathCallback: ValueCallback<Array<Uri>>?,
+                                fileChooserParams: FileChooserParams?
+                            ): Boolean {
+                                this@apply.let { wv ->
+                                    if (filePathCallback == null) return false
+                                    this@WebViewComponent.filePathCallback?.onReceiveValue(null)
+                                    this@WebViewComponent.filePathCallback = filePathCallback
+
+                                    try {
+                                        val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                                            addCategory(Intent.CATEGORY_OPENABLE)
+                                            type = "*/*"
+                                        }
+                                        fileChooserLauncher.launch(intent)
+                                    } catch (_: Exception) {
+                                        this@WebViewComponent.filePathCallback = null
+                                        filePathCallback.onReceiveValue(null)
+                                        return false
+                                    }
+                                    return true
+                                }
+                            }
+
+                            override fun onJsAlert(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
+                                // Let WebView handle it natively - could customize with Compose dialog
+                                return super.onJsAlert(view, url, message, result)
+                            }
                         }
 
                         setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
                             DownloadHandler.downloadFile(ctx, url, userAgent, contentDisposition, mimetype)
+                        }
+
+                        // Find listener
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+                            setFindListener { activeMatchOrdinal, numberOfMatches, isDoneCounting ->
+                                onFindResult(activeMatchOrdinal, numberOfMatches)
+                            }
                         }
 
                         if (tab.url != Constants.HOME_PAGE_URL && tab.url.isNotBlank()) {
@@ -304,11 +391,41 @@ fun WebViewComponent(
             )
         }
 
-        customView?.let { view ->
-            AndroidView(
-                factory = { view },
-                modifier = Modifier.fillMaxSize()
-            )
+        // Fullscreen video overlay
+        AnimatedVisibility(
+            visible = customView != null,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            customView?.let { view ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                ) {
+                    AndroidView(
+                        factory = { view },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    // Exit fullscreen button
+                    IconButton(
+                        onClick = {
+                            customView = null
+                            customViewCallback?.onCustomViewHidden()
+                            customViewCallback = null
+                        },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(16.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Exit fullscreen",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -358,37 +475,47 @@ fun ErrorPage(
 ) {
     Box(
         modifier = Modifier.fillMaxSize(),
-        contentAlignment = androidx.compose.ui.Alignment.Center
+        contentAlignment = Alignment.Center
     ) {
         Column(
             modifier = Modifier.padding(24.dp),
-            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(
                 imageVector = when (error.type) {
                     ErrorType.SSL -> Icons.Default.Lock
                     ErrorType.DNS -> Icons.Default.Search
-                    ErrorType.TIMEOUT -> Icons.Default.DateRange
+                    ErrorType.TIMEOUT -> Icons.Default.HourglassEmpty
+                    ErrorType.HTTP -> Icons.Default.Error
                     else -> Icons.Default.Warning
                 },
                 contentDescription = null,
                 modifier = Modifier.size(72.dp),
-                tint = MaterialTheme.colorScheme.error
+                tint = when (error.type) {
+                    ErrorType.SSL -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
             )
             Spacer(Modifier.height(16.dp))
             Text(
                 text = when (error.type) {
-                    ErrorType.SSL -> "Security Warning"
-                    ErrorType.DNS -> "DNS Failure"
-                    ErrorType.TIMEOUT -> "Connection Timeout"
-                    ErrorType.HTTP -> "Page Error"
+                    ErrorType.SSL -> "Your connection is not private"
+                    ErrorType.DNS -> "This site can't be reached"
+                    ErrorType.TIMEOUT -> "Connection timed out"
+                    ErrorType.HTTP -> "This page isn't working"
                     else -> "Unable to load page"
                 },
                 style = MaterialTheme.typography.headlineSmall
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = error.description,
+                text = when (error.type) {
+                    ErrorType.SSL -> "Attackers might be trying to steal your information from ${error.url.take(30)} (for example, passwords, messages, or credit cards)."
+                    ErrorType.DNS -> "DNS_PROBE_FINISHED_NXDOMAIN"
+                    ErrorType.TIMEOUT -> "The server took too long to respond."
+                    ErrorType.HTTP -> error.description
+                    else -> error.description
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -408,7 +535,7 @@ fun ErrorPage(
                 )
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(onClick = onBack) { Text("Back") }
+                    OutlinedButton(onClick = onBack) { Text("Back to safety") }
                     Button(
                         onClick = { error.sslHandler?.proceed() },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
@@ -420,8 +547,15 @@ fun ErrorPage(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = onBack) { Text("Back") }
                 FilledTonalButton(onClick = onHome) { Text("Home") }
-                Button(onClick = onRetry) { Text("Retry") }
+                Button(onClick = onRetry) { Text("Reload") }
             }
+
+            Spacer(Modifier.height(24.dp))
+            Text(
+                "Error code: ${error.code}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
         }
     }
 }

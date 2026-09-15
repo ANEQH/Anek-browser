@@ -4,10 +4,13 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.anek.browser.browser.PersistedTab
 import com.anek.browser.browser.SearchEngine
 import com.anek.browser.utils.Constants
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = Constants.DATASTORE_NAME)
 
@@ -33,6 +36,11 @@ object SettingsKeys {
     val AUTOFILL_ENABLED = booleanPreferencesKey("autofill_enabled")
     val ZOOM_CONTROLS = booleanPreferencesKey("zoom_controls")
     val CUSTOM_USER_AGENT = stringPreferencesKey("custom_user_agent")
+    val TABS_JSON = stringPreferencesKey("tabs_json")
+    val CURRENT_TAB_ID = stringPreferencesKey("current_tab_id")
+    val SUGGESTIONS_ENABLED = booleanPreferencesKey("suggestions_enabled")
+    val TAB_RESTORE_ENABLED = booleanPreferencesKey("tab_restore_enabled")
+    val CLOSE_TABS_ON_EXIT = booleanPreferencesKey("close_tabs_on_exit")
 }
 
 data class BrowserSettings(
@@ -52,14 +60,19 @@ data class BrowserSettings(
     val incognitoDefault: Boolean = false,
     val showWallpaper: Boolean = true,
     val wallpaperType: String = "DEFAULT",
-    val startupBehavior: String = "HOME",
+    val startupBehavior: String = "RESTORE", // RESTORE, HOME, BLANK
     val downloadLocation: String = "",
     val autofillEnabled: Boolean = true,
     val zoomControls: Boolean = true,
-    val customUserAgent: String = ""
+    val customUserAgent: String = "",
+    val suggestionsEnabled: Boolean = true,
+    val tabRestoreEnabled: Boolean = true,
+    val closeTabsOnExit: Boolean = false
 )
 
 class SettingsRepository(private val context: Context) {
+
+    private val json = Json { ignoreUnknownKeys = true }
 
     val settingsFlow: Flow<BrowserSettings> = context.settingsDataStore.data.map { prefs ->
         BrowserSettings(
@@ -79,12 +92,35 @@ class SettingsRepository(private val context: Context) {
             incognitoDefault = prefs[SettingsKeys.INCOGNITO_DEFAULT] ?: false,
             showWallpaper = prefs[SettingsKeys.SHOW_WALLPAPER] ?: true,
             wallpaperType = prefs[SettingsKeys.WALLPAPER_TYPE] ?: "DEFAULT",
-            startupBehavior = prefs[SettingsKeys.STARTUP_BEHAVIOR] ?: "HOME",
+            startupBehavior = prefs[SettingsKeys.STARTUP_BEHAVIOR] ?: "RESTORE",
             downloadLocation = prefs[SettingsKeys.DOWNLOAD_LOCATION] ?: "",
             autofillEnabled = prefs[SettingsKeys.AUTOFILL_ENABLED] ?: true,
             zoomControls = prefs[SettingsKeys.ZOOM_CONTROLS] ?: true,
-            customUserAgent = prefs[SettingsKeys.CUSTOM_USER_AGENT] ?: ""
+            customUserAgent = prefs[SettingsKeys.CUSTOM_USER_AGENT] ?: "",
+            suggestionsEnabled = prefs[SettingsKeys.SUGGESTIONS_ENABLED] ?: true,
+            tabRestoreEnabled = prefs[SettingsKeys.TAB_RESTORE_ENABLED] ?: true,
+            closeTabsOnExit = prefs[SettingsKeys.CLOSE_TABS_ON_EXIT] ?: false
         )
+    }
+
+    val tabsFlow: Flow<Pair<List<PersistedTab>, String?>> = context.settingsDataStore.data.map { prefs ->
+        val tabsJson = prefs[SettingsKeys.TABS_JSON] ?: ""
+        val currentId = prefs[SettingsKeys.CURRENT_TAB_ID]
+        val tabs = try {
+            if (tabsJson.isNotBlank()) json.decodeFromString<List<PersistedTab>>(tabsJson)
+            else emptyList()
+        } catch (_: Exception) { emptyList() }
+        tabs to currentId
+    }
+
+    suspend fun saveTabs(tabs: List<PersistedTab>, currentTabId: String?) {
+        context.settingsDataStore.edit { prefs ->
+            try {
+                prefs[SettingsKeys.TABS_JSON] = json.encodeToString(tabs)
+            } catch (_: Exception) {}
+            if (currentTabId != null) prefs[SettingsKeys.CURRENT_TAB_ID] = currentTabId
+            else prefs.remove(SettingsKeys.CURRENT_TAB_ID)
+        }
     }
 
     suspend fun updateSearchEngine(engine: SearchEngine) {
@@ -169,6 +205,14 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun updateCustomUserAgent(agent: String) {
         context.settingsDataStore.edit { it[SettingsKeys.CUSTOM_USER_AGENT] = agent }
+    }
+
+    suspend fun updateSuggestionsEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.SUGGESTIONS_ENABLED] = enabled }
+    }
+
+    suspend fun updateTabRestoreEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.TAB_RESTORE_ENABLED] = enabled }
     }
 
     suspend fun clearAll() {

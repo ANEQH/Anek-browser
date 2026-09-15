@@ -9,7 +9,7 @@ on:
       version:
         description: 'Version name (e.g. 1.0.1)'
         required: false
-        default: '1.0.0'
+        default: '1.1.0'
 
 jobs:
   build-release:
@@ -54,6 +54,13 @@ jobs:
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: anek-browser-release-apk
+          name: Anek-Browser-Release-APK
           path: app/build/outputs/apk/release/*.apk
           retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/release/*.apk
+          generate_release_notes: true

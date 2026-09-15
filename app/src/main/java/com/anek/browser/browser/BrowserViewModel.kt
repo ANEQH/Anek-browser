@@ -12,8 +12,10 @@ import com.anek.browser.database.entity.BookmarkEntity
 import com.anek.browser.database.entity.HistoryEntity
 import com.anek.browser.database.entity.ShortcutEntity
 import com.anek.browser.utils.Constants
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -35,6 +37,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _isFindInPageActive = MutableStateFlow(false)
     val isFindInPageActive: StateFlow<Boolean> = _isFindInPageActive.asStateFlow()
 
+    private val _omniboxText = MutableStateFlow("")
+    val omniboxText: StateFlow<String> = _omniboxText.asStateFlow()
+
+    private val _isOmniboxFocused = MutableStateFlow(false)
+    val isOmniboxFocused: StateFlow<Boolean> = _isOmniboxFocused.asStateFlow()
+
     val currentTab: StateFlow<Tab?> = combine(_tabs, _currentTabId) { tabs, currentId ->
         tabs.find { it.id == currentId } ?: tabs.firstOrNull()
     }.stateIn(viewModelScope, SharingStarted.Eagerly, _tabs.value.firstOrNull())
@@ -51,13 +59,94 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     val bookmarks: StateFlow<List<BookmarkEntity>> = db.bookmarkDao().getAllBookmarks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val bookmarkFolders = db.bookmarkDao().getAllFolders()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val shortcuts: StateFlow<List<ShortcutEntity>> = db.shortcutDao().getAllShortcuts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val downloads = db.downloadDao().getAllDownloads()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Tab operations
+    // Omnibox suggestions combining history + bookmarks + search
+    val omniboxSuggestions: StateFlow<List<OmniboxSuggestion>> = combine(
+        _omniboxText,
+        history,
+        bookmarks,
+        settings
+    ) { text, hist, bms, sett ->
+        if (text.isBlank() || !sett.suggestionsEnabled || _isOmniboxFocused.value.not()) emptyList()
+        else generateSuggestions(text, hist, bms)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    init {
+        // Restore tabs from persistence
+        viewModelScope.launch {
+            settingsRepo.tabsFlow.collect { (persistedTabs, currentId) ->
+                if (persistedTabs.isNotEmpty() && settings.value.tabRestoreEnabled) {
+                    val restored = persistedTabs
+                        .filterNot { it.isIncognito } // don't restore incognito
+                        .map { it.toTab() }
+                        .take(Constants.MAX_TABS)
+                    if (restored.isNotEmpty()) {
+                        _tabs.value = restored
+                        _currentTabId.value = currentId?.takeIf { id -> restored.any { it.id == id } } ?: restored.last().id
+                    }
+                }
+            }
+        }
+
+        // Auto-save tabs when they change
+        viewModelScope.launch {
+            combine(_tabs, _currentTabId) { tabs, currentId ->
+                tabs to currentId
+            }.collect { (tabs, currentId) ->
+                withContext(Dispatchers.IO) {
+                    val toPersist = tabs
+                        .filterNot { it.isIncognito }
+                        .map { PersistedTab.fromTab(it) }
+                    settingsRepo.saveTabs(toPersist, currentId)
+                }
+            }
+        }
+    }
+
+    private fun generateSuggestions(input: String, hist: List<HistoryEntity>, bms: List<BookmarkEntity>): List<OmniboxSuggestion> {
+        val lower = input.lowercase()
+        val suggestions = mutableListOf<OmniboxSuggestion>()
+
+        // History suggestions
+        hist.filter { it.url.contains(lower, true) || it.title.contains(lower, true) }
+            .take(4)
+            .forEach {
+                suggestions.add(OmniboxSuggestion.History(it.title, it.url))
+            }
+
+        // Bookmark suggestions
+        bms.filter { it.url.contains(lower, true) || it.title.contains(lower, true) }
+            .take(3)
+            .forEach {
+                suggestions.add(OmniboxSuggestion.Bookmark(it.title, it.url))
+            }
+
+        // Search suggestion
+        if (input.isNotBlank() && !UrlUtils.isValidUrl(input)) {
+            suggestions.add(0, OmniboxSuggestion.Search(input))
+        }
+
+        // URL suggestion if valid
+        if (UrlUtils.isValidUrl(input)) {
+            suggestions.add(0, OmniboxSuggestion.Url(UrlUtils.normalizeUrl(input)))
+        }
+
+        return suggestions.distinctBy { it.url }.take(8)
+    }
+
+    // Omnibox
+    fun setOmniboxText(text: String) { _omniboxText.value = text }
+    fun setOmniboxFocused(focused: Boolean) { _isOmniboxFocused.value = focused }
+
+    // Tab operations - Chrome-like
     fun addTab(url: String = Constants.HOME_PAGE_URL, isIncognito: Boolean = false, select: Boolean = true) {
         if (_tabs.value.size >= Constants.MAX_TABS) return
         val newTab = Tab(
@@ -69,6 +158,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _tabs.value = _tabs.value + newTab
         if (select) {
             _currentTabId.value = newTab.id
+            _omniboxText.value = if (newTab.isHomePage()) "" else newTab.url
         }
     }
 
@@ -80,12 +170,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         if (_tabs.value.any { it.id == tabId }) {
             _currentTabId.value = tabId
             updateTabLastAccessed(tabId)
+            currentTab.value?.let { tab ->
+                _omniboxText.value = if (tab.isHomePage()) "" else tab.url
+            }
         }
     }
 
     fun closeTab(tabId: String) {
         val tabToClose = _tabs.value.find { it.id == tabId } ?: return
-        _closedTabs.value = (listOf(ClosedTab(tabToClose)) + _closedTabs.value).take(10)
+        _closedTabs.value = (listOf(ClosedTab(tabToClose)) + _closedTabs.value).take(20)
 
         val newTabs = _tabs.value.filterNot { it.id == tabId }
         _tabs.value = if (newTabs.isEmpty()) {
@@ -102,15 +195,24 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun closeAllTabs(includePrivate: Boolean = true) {
         val toClose = if (includePrivate) _tabs.value else _tabs.value.filterNot { it.isIncognito }
         if (toClose.isNotEmpty()) {
-            _closedTabs.value = (toClose.map { ClosedTab(it) } + _closedTabs.value).take(10)
+            _closedTabs.value = (toClose.map { ClosedTab(it) } + _closedTabs.value).take(20)
         }
         val remaining = if (includePrivate) emptyList() else _tabs.value.filter { it.isIncognito }
         _tabs.value = if (remaining.isEmpty()) listOf(Tab()) else remaining
         _currentTabId.value = _tabs.value.first().id
     }
 
+    fun closeOtherTabs(keepId: String) {
+        val keep = _tabs.value.find { it.id == keepId } ?: return
+        val toClose = _tabs.value.filterNot { it.id == keepId }
+        _closedTabs.value = (toClose.map { ClosedTab(it) } + _closedTabs.value).take(20)
+        _tabs.value = listOf(keep)
+        _currentTabId.value = keep.id
+    }
+
     fun duplicateTab(tabId: String) {
         val original = _tabs.value.find { it.id == tabId } ?: return
+        if (_tabs.value.size >= Constants.MAX_TABS) return
         val duplicate = original.copy(
             id = java.util.UUID.randomUUID().toString(),
             lastAccessed = System.currentTimeMillis()
@@ -121,15 +223,26 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun restoreLastClosedTab() {
         val last = _closedTabs.value.firstOrNull() ?: return
+        if (_tabs.value.size >= Constants.MAX_TABS) return
         _tabs.value = _tabs.value + last.tab.copy(lastAccessed = System.currentTimeMillis())
         _currentTabId.value = last.tab.id
         _closedTabs.value = _closedTabs.value.drop(1)
+    }
+
+    fun reopenClosedTab(closedTab: ClosedTab) {
+        if (_tabs.value.size >= Constants.MAX_TABS) return
+        _tabs.value = _tabs.value + closedTab.tab.copy(lastAccessed = System.currentTimeMillis())
+        _currentTabId.value = closedTab.tab.id
+        _closedTabs.value = _closedTabs.value.filterNot { it.tab.id == closedTab.tab.id }
     }
 
     fun updateTabUrl(tabId: String, url: String, title: String = url) {
         _tabs.value = _tabs.value.map {
             if (it.id == tabId) it.copy(url = url, title = title, lastAccessed = System.currentTimeMillis())
             else it
+        }
+        if (tabId == _currentTabId.value) {
+            _omniboxText.value = if (url == Constants.HOME_PAGE_URL) "" else url
         }
     }
 
@@ -154,9 +267,23 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun updateTabFavicon(tabId: String, faviconUrl: String?) {
+        _tabs.value = _tabs.value.map {
+            if (it.id == tabId) it.copy(favicon = faviconUrl)
+            else it
+        }
+    }
+
     fun toggleDesktopMode(tabId: String) {
         _tabs.value = _tabs.value.map {
             if (it.id == tabId) it.copy(isDesktopMode = !it.isDesktopMode)
+            else it
+        }
+    }
+
+    fun pinTab(tabId: String) {
+        _tabs.value = _tabs.value.map {
+            if (it.id == tabId) it.copy(isPinned = !it.isPinned)
             else it
         }
     }
@@ -174,7 +301,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val currentTabIncognito = _tabs.value.find { it.id == _currentTabId.value }?.isIncognito ?: false
         if (currentTabIncognito) return
 
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             val existing = db.historyDao().getHistoryByUrl(url)
             if (existing != null) {
                 db.historyDao().incrementVisitCount(url, title, System.currentTimeMillis())
@@ -185,21 +312,20 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun deleteHistoryItem(id: Long) {
-        viewModelScope.launch { db.historyDao().deleteById(id) }
+        viewModelScope.launch(Dispatchers.IO) { db.historyDao().deleteById(id) }
     }
 
     fun clearAllHistory() {
-        viewModelScope.launch { db.historyDao().clearAll() }
+        viewModelScope.launch(Dispatchers.IO) { db.historyDao().clearAll() }
     }
 
-    fun searchHistory(query: String): Flow<List<HistoryEntity>> {
-        return if (query.isBlank()) db.historyDao().getAllHistory()
-        else db.historyDao().searchHistory(query)
+    fun deleteHistoryByUrl(url: String) {
+        viewModelScope.launch(Dispatchers.IO) { db.historyDao().deleteByUrl(url) }
     }
 
     // Bookmarks
     fun addBookmark(url: String, title: String, folderId: Long? = null) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             val existing = db.bookmarkDao().getBookmarkByUrl(url)
             if (existing == null) {
                 db.bookmarkDao().insert(BookmarkEntity(url = url, title = title, folderId = folderId))
@@ -208,11 +334,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun updateBookmark(bookmark: BookmarkEntity) {
-        viewModelScope.launch { db.bookmarkDao().update(bookmark) }
+        viewModelScope.launch(Dispatchers.IO) { db.bookmarkDao().update(bookmark) }
     }
 
     fun deleteBookmark(id: Long) {
-        viewModelScope.launch { db.bookmarkDao().deleteById(id) }
+        viewModelScope.launch(Dispatchers.IO) { db.bookmarkDao().deleteById(id) }
+    }
+
+    fun addBookmarkFolder(name: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            db.bookmarkDao().insertFolder(com.anek.browser.database.entity.BookmarkFolderEntity(name = name))
+        }
+    }
+
+    fun deleteBookmarkFolder(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) { db.bookmarkDao().deleteFolderById(id) }
     }
 
     fun isBookmarked(url: String): Flow<Boolean> {
@@ -221,27 +357,27 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     // Shortcuts
     fun addShortcut(url: String, title: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             if (shortcuts.value.size >= Constants.SHORTCUT_LIMIT) return@launch
             db.shortcutDao().insert(ShortcutEntity(url = url, title = title, position = shortcuts.value.size))
         }
     }
 
     fun deleteShortcut(id: Long) {
-        viewModelScope.launch { db.shortcutDao().deleteById(id) }
+        viewModelScope.launch(Dispatchers.IO) { db.shortcutDao().deleteById(id) }
     }
 
     fun updateShortcutPosition(shortcuts: List<ShortcutEntity>) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             shortcuts.forEachIndexed { index, shortcut ->
                 db.shortcutDao().update(shortcut.copy(position = index))
             }
         }
     }
 
-    // Downloads handled via DownloadManager, but we track history
+    // Downloads
     fun clearDownloads() {
-        viewModelScope.launch { db.downloadDao().clearAll() }
+        viewModelScope.launch(Dispatchers.IO) { db.downloadDao().clearAll() }
     }
 
     // Privacy
@@ -251,8 +387,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun clearCache() {
-        // WebView cache is cleared per WebView instance, but also clear app cache
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 getApplication<Application>().cacheDir.deleteRecursively()
             } catch (_: Exception) {}
@@ -268,9 +403,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         clearCache()
         clearWebStorage()
         clearAllHistory()
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             db.shortcutDao().clearAll()
-            // Keep bookmarks unless user wants
         }
     }
 
@@ -337,16 +471,38 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch { settingsRepo.updateToolbarPosition(position) }
     }
 
+    fun updateSuggestionsEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepo.updateSuggestionsEnabled(enabled) }
+    }
+
+    fun updateTabRestoreEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepo.updateTabRestoreEnabled(enabled) }
+    }
+
     fun resetSettings() {
         viewModelScope.launch { settingsRepo.clearAll() }
     }
 
     fun resolveInput(input: String): String {
         val s = settings.value
-        return com.anek.browser.browser.UrlUtils.resolveInputToUrl(input, s.searchEngine, s.customSearchUrl)
+        return UrlUtils.resolveInputToUrl(input, s.searchEngine, s.customSearchUrl)
     }
 
     fun getCurrentTabUrl(): String {
         return currentTab.value?.url ?: Constants.HOME_PAGE_URL
+    }
+}
+
+sealed class OmniboxSuggestion {
+    abstract val title: String
+    abstract val url: String
+    data class History(override val title: String, override val url: String) : OmniboxSuggestion()
+    data class Bookmark(override val title: String, override val url: String) : OmniboxSuggestion()
+    data class Search(val query: String) : OmniboxSuggestion() {
+        override val title: String = query
+        override val url: String = query
+    }
+    data class Url(override val url: String) : OmniboxSuggestion() {
+        override val title: String = url
     }
 }

@@ -1,17 +1,16 @@
 package com.anek.browser.ui.screens
 
+import android.webkit.WebView
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.anek.browser.browser.BrowserViewModel
 import com.anek.browser.browser.Tab
@@ -20,6 +19,7 @@ import com.anek.browser.ui.components.*
 import com.anek.browser.utils.Constants
 import com.anek.browser.utils.openUrlExternally
 import com.anek.browser.utils.shareText
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,122 +36,130 @@ fun BrowserScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var addressText by remember(tab?.id, tab?.url) {
-        mutableStateOf(if (tab?.isHomePage() == true) "" else tab?.url ?: "")
-    }
-    var isEditing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    // Omnibox state from ViewModel for Chrome-like behavior
+    val omniboxText by viewModel.omniboxText.collectAsState()
+    val isOmniboxFocused by viewModel.isOmniboxFocused.collectAsState()
+    val suggestions by viewModel.omniboxSuggestions.collectAsState()
+    val isFindActive by viewModel.isFindInPageActive.collectAsState()
+    val findQuery by viewModel.findInPageQuery.collectAsState()
+
     var showMenu by remember { mutableStateOf(false) }
     var showAddShortcutDialog by remember { mutableStateOf(false) }
     var findMatch by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
 
     val isBookmarked by viewModel.isBookmarked(tab?.url ?: "").collectAsState(initial = false)
 
-    // Handle back/forward from WebView via state? We'll use callbacks from WebViewComponent
-    // For simplicity, we store webView canGoBack etc in Tab via ViewModel
+    // Sync omnibox with current tab when tab changes
+    LaunchedEffect(tab?.id, tab?.url) {
+        if (!isOmniboxFocused) {
+            viewModel.setOmniboxText(if (tab?.isHomePage() == true) "" else tab?.url ?: "")
+        }
+    }
+
+    BackHandler(enabled = isOmniboxFocused) {
+        viewModel.setOmniboxFocused(false)
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    // Address bar integrated
-                    OutlinedTextField(
-                        value = if (isEditing) addressText else (tab?.url?.takeIf { !tab.isHomePage() } ?: ""),
-                        onValueChange = {
-                            addressText = it
-                            isEditing = true
-                        },
-                        placeholder = { Text("Search or type web address") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        leadingIcon = {
-                            Icon(
-                                when {
-                                    tab?.isHomePage() == true -> Icons.Default.Home
-                                    tab?.url?.startsWith("https") == true -> Icons.Default.Lock
-                                    else -> Icons.Default.Search
-                                },
-                                contentDescription = null
-                            )
-                        },
-                        trailingIcon = {
-                            if (isEditing && addressText.isNotBlank()) {
-                                IconButton(onClick = { addressText = "" }) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
-                                }
-                            } else if (tab?.isLoading == true) {
-                                IconButton(onClick = { /* stop */ }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Stop")
-                                }
-                            }
-                        },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                        keyboardActions = KeyboardActions(
-                            onGo = {
-                                if (addressText.isNotBlank()) {
-                                    val resolved = viewModel.resolveInput(addressText)
-                                    viewModel.updateTabUrl(tab?.id ?: "", resolved)
-                                    isEditing = false
-                                }
-                            }
-                        ),
-                        shape = MaterialTheme.shapes.extraLarge
-                    )
+            ChromeTopBar(
+                tab = tab,
+                omniboxText = omniboxText,
+                onOmniboxTextChange = { viewModel.setOmniboxText(it) },
+                onNavigate = { input ->
+                    val resolved = viewModel.resolveInput(input)
+                    tab?.let { viewModel.updateTabUrl(it.id, resolved) } ?: viewModel.addTab(resolved)
+                    viewModel.setOmniboxFocused(false)
                 },
-                navigationIcon = {
-                    if (tab?.canGoBack == true) {
-                        IconButton(onClick = {
-                            // Will be handled by WebView goBack via callback? For now we need to trigger via side effect
-                            // We use a hack: update tab url? Better: expose webView controller via state
-                            // For this version, we keep simple and rely on WebView's internal handling via back press in component? 
-                            // We'll implement via ViewModel event bus later
-                        }) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                        }
+                onFocusChange = { focused -> viewModel.setOmniboxFocused(focused) },
+                isOmniboxFocused = isOmniboxFocused,
+                suggestions = suggestions,
+                onSuggestionClick = { suggestion ->
+                    val url = when (suggestion) {
+                        is com.anek.browser.browser.OmniboxSuggestion.Search -> viewModel.resolveInput(suggestion.query)
+                        else -> suggestion.url
+                    }
+                    tab?.let { viewModel.updateTabUrl(it.id, url) } ?: viewModel.addTab(url)
+                },
+                onBack = {
+                    webViewInstance?.let { wv ->
+                        if (wv.canGoBack()) wv.goBack()
                     }
                 },
-                actions = {
-                    if (tab?.isLoading == true) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                onForward = {
+                    webViewInstance?.let { wv ->
+                        if (wv.canGoForward()) wv.goForward()
                     }
-                }
+                },
+                onReload = {
+                    webViewInstance?.let { wv ->
+                        if (tab?.isLoading == true) wv.stopLoading()
+                        else wv.reload()
+                    } ?: run {
+                        tab?.let { viewModel.updateTabUrl(it.id, it.url) }
+                    }
+                },
+                onHome = onNavigateHome,
+                onTabsClick = onTabsClick,
+                onMenuClick = { showMenu = true },
+                tabCount = viewModel.tabs.collectAsState().value.size,
+                canGoBack = tab?.canGoBack ?: false,
+                canGoForward = tab?.canGoForward ?: false,
+                isLoading = tab?.isLoading ?: false
             )
         },
         bottomBar = {
             Column {
-                if (viewModel.isFindInPageActive.collectAsState().value) {
+                // Find in page bar - Chrome-like
+                AnimatedVisibility(
+                    visible = isFindActive,
+                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                ) {
                     FindInPageBar(
-                        query = viewModel.findInPageQuery.collectAsState().value,
+                        query = findQuery,
                         match = findMatch,
                         onQueryChange = { viewModel.setFindInPageQuery(it) },
                         onClose = { viewModel.setFindInPageActive(false) },
-                        onNext = { /* handled inside WebView via findNext */ },
-                        onPrev = { }
+                        onNext = { webViewInstance?.findNext(true) },
+                        onPrev = { webViewInstance?.findNext(false) }
                     )
                 }
 
+                // Progress bar - Chrome-like thin line
                 if (tab?.progress != null && tab.progress in 1..99) {
                     LinearProgressIndicator(
                         progress = { tab.progress / 100f },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
 
-                BrowserBottomBar(
-                    tab = tab,
-                    onBack = { /* webView goBack */ },
-                    onForward = { /* webView goForward */ },
-                    onReload = {
-                        if (tab?.isLoading == true) {
-                            // stop
-                        } else {
-                            tab?.let { viewModel.updateTabUrl(it.id, it.url) }
-                        }
-                    },
-                    onHome = onNavigateHome,
-                    onTabsClick = onTabsClick,
-                    onMenuClick = { showMenu = true },
-                    tabCount = viewModel.tabs.collectAsState().value.size
-                )
+                // Bottom toolbar only when omnibox not focused and not homepage
+                AnimatedVisibility(
+                    visible = !isOmniboxFocused && tab?.isHomePage() == false,
+                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                ) {
+                    BrowserBottomBar(
+                        tab = tab,
+                        onBack = { webViewInstance?.let { if (it.canGoBack()) it.goBack() } },
+                        onForward = { webViewInstance?.let { if (it.canGoForward()) it.goForward() } },
+                        onReload = {
+                            webViewInstance?.let { wv ->
+                                if (tab?.isLoading == true) wv.stopLoading() else wv.reload()
+                            }
+                        },
+                        onHome = onNavigateHome,
+                        onTabsClick = onTabsClick,
+                        onMenuClick = { showMenu = true },
+                        tabCount = viewModel.tabs.collectAsState().value.size
+                    )
+                }
             }
         },
         modifier = modifier
@@ -212,12 +220,13 @@ fun BrowserScreen(
                         }
                     },
                     onRequestPermission = { perm, cb ->
-                        // For simplicity auto-deny, or could request
+                        // In real Chrome-like, show permission prompt
+                        // For now, deny and show toast with option to allow in settings
                         cb(false)
-                        Toast.makeText(context, "Permission $perm denied (manage in settings)", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Permission $perm blocked. Allow in site settings.", Toast.LENGTH_SHORT).show()
                     },
-                    findQuery = viewModel.findInPageQuery.collectAsState().value,
-                    isFindActive = viewModel.isFindInPageActive.collectAsState().value,
+                    findQuery = findQuery,
+                    isFindActive = isFindActive,
                     onFindResult = { active, total ->
                         findMatch = active to total
                     },
@@ -226,19 +235,24 @@ fun BrowserScreen(
             }
         }
 
+        // Chrome-like menu bottom sheet
         if (showMenu) {
-            ModalBottomSheet(onDismissRequest = { showMenu = false }) {
+            ModalBottomSheet(
+                onDismissRequest = { showMenu = false },
+                containerColor = MaterialTheme.colorScheme.surfaceContainer
+            ) {
                 BrowserMenuSheet(
                     isDesktopMode = tab?.isDesktopMode ?: false,
                     isBookmarked = isBookmarked,
                     onBookmark = {
                         tab?.let {
                             if (isBookmarked) {
-                                // remove
                                 val bm = viewModel.bookmarks.value.find { b -> b.url == it.url }
                                 bm?.let { b -> viewModel.deleteBookmark(b.id) }
+                                Toast.makeText(context, "Bookmark removed", Toast.LENGTH_SHORT).show()
                             } else {
                                 viewModel.addBookmark(it.url, it.title)
+                                Toast.makeText(context, "Bookmarked", Toast.LENGTH_SHORT).show()
                             }
                         }
                         showMenu = false
@@ -328,19 +342,24 @@ fun FindInPageBar(
     ) {
         Row(
             modifier = Modifier.padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
         ) {
             OutlinedTextField(
                 value = query,
                 onValueChange = onQueryChange,
                 placeholder = { Text("Find in page") },
                 singleLine = true,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                shape = MaterialTheme.shapes.medium
             )
             if (match != null) {
-                Text("${match.first + 1}/${match.second}", modifier = Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.labelMedium)
+                Text(
+                    "${match.first + 1}/${match.second}",
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                    style = MaterialTheme.typography.labelMedium
+                )
             }
-            IconButton(onClick = onPrev) { Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Prev") }
+            IconButton(onClick = onPrev) { Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Previous") }
             IconButton(onClick = onNext) { Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Next") }
             IconButton(onClick = onClose) { Icon(Icons.Default.Close, contentDescription = "Close") }
         }

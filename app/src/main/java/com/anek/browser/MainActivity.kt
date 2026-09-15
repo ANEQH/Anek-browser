@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.anek.browser.browser.BrowserViewModel
@@ -21,6 +22,7 @@ class MainActivity : ComponentActivity() {
     private val viewModel: BrowserViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -58,6 +60,7 @@ fun AnekBrowserNavHost(viewModel: BrowserViewModel) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
+    val bookmarkFolders by viewModel.bookmarkFolders.collectAsStateWithLifecycle()
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
 
     when (currentScreen) {
@@ -120,6 +123,7 @@ fun AnekBrowserNavHost(viewModel: BrowserViewModel) {
         Screen.BOOKMARKS -> {
             BookmarksScreen(
                 bookmarks = bookmarks,
+                folders = bookmarkFolders,
                 onItemClick = { bm ->
                     currentTab?.let { tab ->
                         viewModel.updateTabUrl(tab.id, bm.url, bm.title)
@@ -128,6 +132,7 @@ fun AnekBrowserNavHost(viewModel: BrowserViewModel) {
                 },
                 onDelete = { bm -> viewModel.deleteBookmark(bm.id) },
                 onEdit = { bm -> viewModel.updateBookmark(bm) },
+                onCreateFolder = { name -> viewModel.addBookmarkFolder(name) },
                 onExport = { },
                 onBack = { currentScreen = Screen.BROWSER }
             )
@@ -155,6 +160,8 @@ fun AnekBrowserNavHost(viewModel: BrowserViewModel) {
                 onUpdateSafeBrowsing = { enabled -> viewModel.updateSafeBrowsing(enabled) },
                 onUpdateHomepage = { url -> viewModel.updateHomepage(url) },
                 onUpdateToolbarPosition = { pos -> viewModel.updateToolbarPosition(pos) },
+                onUpdateSuggestions = { enabled -> viewModel.updateSuggestionsEnabled(enabled) },
+                onUpdateTabRestore = { enabled -> viewModel.updateTabRestoreEnabled(enabled) },
                 onClearCookies = { viewModel.clearCookies() },
                 onClearCache = { viewModel.clearCache() },
                 onClearWebStorage = { viewModel.clearWebStorage() },

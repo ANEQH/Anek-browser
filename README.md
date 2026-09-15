@@ -1,304 +1,270 @@
-# Anek Browser
+# Anek Browser - Chrome-like Professional Android Browser
 
-A complete, production-quality Android web browser built from scratch with Kotlin, Jetpack Compose, and WebView.
+A polished, fast, production-quality Android web browser built from scratch with Kotlin, Jetpack Compose, and WebView. Chrome-like UX, smooth animations, and professional features.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Min SDK](https://img.shields.io/badge/minSdk-24-green.svg)
 ![Target SDK](https://img.shields.io/badge/targetSdk-34-green.svg)
+![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)
 ![Kotlin](https://img.shields.io/badge/kotlin-1.9.22-purple.svg)
 ![Compose](https://img.shields.io/badge/compose-BOM%202024.09.02-blue.svg)
 
+## ✨ What's New in v1.1.0 - Chrome-like Upgrade
+
+- **Chrome-like Omnibox** with intelligent suggestions from history, bookmarks, search
+- **Professional Toolbar** - top omnibox with tab counter, bottom navigation, smooth animations
+- **Advanced Tab System** - persistence across restarts, swipe to close, tab restore, memory optimization
+- **Room Database** - full Room implementation for history, bookmarks, shortcuts, downloads
+- **Enhanced WebView Engine** - file upload support, permission handling, fullscreen video, safe browsing
+- **Polished Home Page** - Chrome-like shortcuts, recent, bookmarks, privacy card
+- **Upgraded UI/UX** - Material 3, dynamic colors, edge-to-edge, swipe gestures, animations
+- **Smart Address Bar** - URL/search/IP/localhost detection, configurable engines, copy/paste/share
+- **Download Manager** - improved progress, status, file type icons
+
 ## Features
 
-### Core Browsing
-- **Smart Address Bar**: Intelligently detects URLs, IP addresses, localhost, and search queries
-- **Multi-Tab Support**: New, close, switch, duplicate, restore closed tabs, tab overview, swipe to close
-- **Private/Incognito Tabs**: No history, cookies, or site data saved
-- **Navigation**: Back, forward, reload, stop, home, share, find in page
-- **Desktop/Mobile Mode**: Toggle user-agent and reload
+### Chrome-like Browsing Experience
+- **Smart Omnibox**: Intelligent detection of URLs, IPs, localhost, search queries with suggestions
+- **Professional Toolbar**: Back, forward, reload/stop, home, tab counter, three-dot menu
+- **Tab Management**: Create, close, swipe to close, duplicate, close all, restore, persistence
+- **Private Tabs**: Separate incognito session, no history saving, clear visual distinction
+- **Navigation**: Smooth back/forward, reload, home, share, find in page, desktop toggle
 
-### Home Page (Offline Capable)
-- Beautiful Material 3 design with dynamic colors
-- Search/address bar
-- Quick shortcuts (add, remove, reorder)
-- Recently visited sites
+### Home Page (Offline Capable, Chrome-like)
+- Centered search bar with mic icon
+- Quick shortcuts with favicon initials, add/remove/long-press
+- Recently visited with Chrome-like cards
 - Bookmarks section
-- Customizable wallpaper
-- Dark/Light/System theme
+- Privacy info card
+- Customizable wallpaper, dark/light/system theme
+- Clean empty states with call-to-action
 
 ### WebView Engine (Secure & Full-Featured)
 - JavaScript, DOM storage, cookies, third-party cookie controls
-- Zoom controls, wide viewport, responsive pages
-- File uploads, multiple windows/popups safely
-- Geolocation, camera/microphone permission handling
-- Download handling via Android DownloadManager
-- Custom WebViewClient & WebChromeClient
-- SSL error handling (never blindly bypasses)
-- HTTP error handling with custom error pages
-- Fullscreen video support
-- Find in page
+- Zoom controls, wide viewport, responsive
+- **File uploads** via `onShowFileChooser` - Chrome-like file picker
+- Multiple windows/popups safely handled
+- Geolocation, camera/microphone permission prompts
+- Download handling via DownloadManager
+- SSL error handling with warning page (never blindly bypass)
+- HTTP error handling with custom pages
+- **Fullscreen video** with exit button, orientation handling
+- Find in page with next/prev, match count
+- Safe browsing enabled (Android O+)
+
+### Tab System - Advanced
+- Multiple tabs with counter badge
+- Tab overview grid (adaptive)
+- Create, close, swipe to dismiss, close all, close others
+- Reopen closed tabs (20 saved)
+- Duplicate tab
+- Tab persistence via DataStore JSON - restore after restart
+- Incognito tabs separated, not restored
+- Memory optimization - only current tab WebView active
+- Long-press actions, pinned tabs support
+
+### Smart Address Bar (Omnibox)
+- Detects: `https://example.com`, `example.com`, `192.168.1.1`, `localhost:3000`, `hello world`
+- Search engines: Google, Bing, DuckDuckGo, Brave, Custom
+- Suggestions: history, bookmarks, search, URL
+- Clear button, paste and go, copy URL
+- Secure indicator (lock icon for HTTPS)
+- No ToS violation - local suggestions only
+
+### History - Chrome-like
+- URL, title, timestamp, favicon initial, visit count
+- Grouped by Today, Yesterday, date
+- Search, delete individual, delete selected, clear all
+- Open in current/new tab, copy link
+- Sticky headers, Material 3 cards
+
+### Bookmarks - Professional
+- Add, edit, delete
+- Folders support, create folder, move bookmark
+- Search, filter by folder
+- Import/export placeholder
+- Chrome-like UI with chips for folders
+
+### Download Manager - Proper
+- Filename, URL, progress, status, size, time
+- File type icons (image, video, audio, PDF)
+- Open, share, delete
+- Uses Android DownloadManager
+- Scoped storage, FileProvider
 
 ### Privacy & Security
-- Incognito mode
-- Clear history, cookies, cache, site data
-- Do Not Track preference
-- Block third-party cookies toggle
+- Incognito mode with clear explanation of limitations
+- Clear browsing data, cookies, cache, history
+- Third-party cookie controls
 - JavaScript toggle
-- Safe browsing architecture
 - Permission manager
+- Do Not Track
+- Safe browsing
 - Network security config (no cleartext except localhost)
 - No dangerous JS bridges
-- Honest privacy limitations (does not claim perfect anonymity)
+- Honest privacy disclosure
 
-### History
-- Title, URL, visit time, favicon
-- Group by day (Today, Yesterday, Older)
-- Search history
-- Delete individual or all
-- Open, long-press actions
-
-### Bookmarks
-- Add, edit, delete
-- Folders, move, sort
-- Search
-- Import/export JSON/HTML
-- Open in current/new tab
-
-### Download Manager
-- Download via system DownloadManager
-- Notification, progress, open, share, delete
-- Download history
-- Uses scoped storage (no excessive permissions)
-
-### UI/UX
-- Material 3, dynamic colors, edge-to-edge
-- Smooth animations, rounded components
-- Responsive layout
-- Dark/Light/System themes
-- Accessibility-friendly
-- Bottom toolbar (configurable top/bottom)
+### UI/UX Polish - Chrome-like
+- Material 3, dynamic colors, edge-to-edge, splash screen
+- Smooth animations (fade, slide, expand), rounded components
+- Dark/Light/System theme
+- Accessibility support, proper touch targets (48dp)
+- Bottom navigation when browsing, top omnibox always visible
+- Swipe to dismiss tabs, pull to refresh? (WebView native)
+- Professional error pages with illustrations
 
 ### Performance
-- Optimized for low-end devices
-- Proper WebView lifecycle (destroy to avoid leaks)
-- Lazy lists, efficient state, coroutines for IO
-- No main thread blocking
-- Handles Android lifecycle correctly
-
-### Error Pages
-- Custom pages for no internet, DNS failure, timeout, HTTP errors, SSL
-- Retry, Go Home, Back actions
+- Fast startup with splash screen
+- Lazy Compose lists, efficient state with derivedStateOf
+- WebView cleanup in DisposableEffect
+- Coroutines off main thread (IO dispatcher for DB)
+- No ANRs, no memory leaks, state restoration
+- Optimized for mid-range and low-end devices
+- Tab persistence without keeping WebViews in memory
 
 ## Tech Stack
 
-- **Language**: Kotlin 1.9.22
-- **UI**: Jetpack Compose (BOM 2024.09.02), Material 3
-- **Web Rendering**: Android WebView + WebKit
-- **Architecture**: MVVM, Coroutines, StateFlow
-- **Storage**: DataStore (settings), In-memory + Room-ready architecture for history/bookmarks
+- **Language**: Kotlin 1.9.22 + Serialization
+- **UI**: Jetpack Compose BOM 2024.09.02, Material 3, Animation, Extended Icons
+- **Web**: Android WebView + WebKit 1.9.0
+- **Architecture**: MVVM, Coroutines, StateFlow, Room, DataStore
+- **Database**: Room 2.6.1 (history, bookmarks, shortcuts, downloads) + DataStore (settings, tabs)
 - **Min SDK**: 24 (Android 7.0)
 - **Target/Compile SDK**: 34 (Android 14)
-- **Gradle**: Kotlin DSL, AGP 8.5.2
+- **Gradle**: Kotlin DSL, AGP 8.5.2, KSP 1.9.22-1.0.17
 
 ## Project Structure
 
 ```
 app/
 ├── src/main/java/com/anek/browser/
-│   ├── MainActivity.kt
-│   ├── AnekBrowserApp.kt
+│   ├── MainActivity.kt (Chrome-like nav)
 │   ├── browser/
-│   │   ├── BrowserViewModel.kt
-│   │   ├── Tab.kt
+│   │   ├── BrowserViewModel.kt (tab persistence, omnibox suggestions)
+│   │   ├── Tab.kt (PersistedTab for JSON)
 │   │   ├── SearchEngine.kt
-│   │   └── UrlUtils.kt
+│   │   └── UrlUtils.kt (IP, localhost, domain detection)
 │   ├── data/datastore/
-│   │   └── SettingsDataStore.kt
+│   │   └── SettingsDataStore.kt (tabs JSON + settings)
 │   ├── database/
-│   │   ├── AppDatabase.kt (in-memory, Room-ready)
-│   │   ├── dao/
-│   │   └── entity/
-│   ├── downloads/
-│   │   └── DownloadHandler.kt
-│   ├── permissions/
-│   │   └── PermissionHandler.kt
+│   │   ├── AppDatabase.kt (Room)
+│   │   ├── dao/ (HistoryDao, BookmarkDao, etc with @Dao)
+│   │   └── entity/ (@Entity)
 │   ├── ui/
-│   │   ├── theme/
+│   │   ├── theme/ (Material3, dynamic colors)
 │   │   ├── components/
-│   │   │   ├── AddressBar.kt
-│   │   │   ├── BrowserMenu.kt
-│   │   │   └── WebViewComponent.kt
+│   │   │   ├── AddressBar.kt (ChromeOmnibox, ChromeTopBar, BrowserBottomBar)
+│   │   │   ├── BrowserMenu.kt (Chrome-like bottom sheet)
+│   │   │   └── WebViewComponent.kt (file chooser, fullscreen, permissions)
 │   │   └── screens/
-│   │       ├── HomeScreen.kt
-│   │       ├── BrowserScreen.kt
-│   │       ├── TabsScreen.kt
-│   │       ├── HistoryScreen.kt
-│   │       ├── BookmarksScreen.kt
-│   │       ├── DownloadsScreen.kt
-│   │       └── SettingsScreen.kt
+│   │       ├── HomeScreen.kt (Chrome-like)
+│   │       ├── BrowserScreen.kt (Chrome-like with omnibox)
+│   │       ├── TabsScreen.kt (swipe to dismiss, FAB)
+│   │       ├── HistoryScreen.kt (grouped, selection)
+│   │       ├── BookmarksScreen.kt (folders)
+│   │       ├── DownloadsScreen.kt (file icons)
+│   │       └── SettingsScreen.kt (complete sections)
 │   └── utils/
-│       ├── Constants.kt
+│       ├── Constants.kt (v1.1.0)
 │       └── Extensions.kt
 ├── src/main/res/
-│   ├── drawable/ic_launcher_foreground.xml
-│   ├── mipmap-anydpi-v26/ic_launcher.xml
-│   ├── values/strings.xml, themes.xml
-│   └── xml/network_security_config.xml, etc.
 └── AndroidManifest.xml
 ```
 
-## Requirements
+## Build Instructions
 
-- Android Studio Hedgehog (2023.1.1) or newer
-- JDK 17
-- Android SDK Platform 34, Build-Tools 34.0.0
-- Device/Emulator API 24+
-
-## How to Build Locally
-
+### Local Build
 ```bash
-git clone https://github.com/yourusername/anek-browser.git
-cd anek-browser
-# Set ANDROID_HOME if not set
+git clone https://github.com/ANEQH/Anek-browser.git
+cd Anek-browser
 export ANDROID_HOME=$HOME/Android/Sdk
+./gradlew assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
 
-# Debug APK
-./gradlew assembleDebug
-
-# APK location
-# app/build/outputs/apk/debug/app-debug.apk
-
-# Install on connected device
-./gradlew installDebug
+# APK: app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## How to Run in Android Studio
+Low-memory (2GB RAM):
+```bash
+./gradlew assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx512m -XX:+UseSerialGC"
+```
 
-1. Open project in Android Studio
+### Android Studio
+1. Open project
 2. Sync Gradle
-3. Select device/emulator API 24+
-4. Run -> Run 'app'
+3. Run on device API 24+
 
-## Generate APKs
+### GitHub Actions - Automatic APK
 
-### Debug APK
-```bash
-./gradlew assembleDebug
-# Output: app/build/outputs/apk/debug/app-debug.apk
-```
+Workflow `.github/workflows/build-apk.yml` triggers on push to main:
 
-### Release APK (unsigned, for testing)
-```bash
-./gradlew assembleRelease
-# Output: app/build/outputs/apk/release/app-release-unsigned.apk
-```
+1. Checkout
+2. JDK 17, Android SDK 34
+3. Cache Gradle
+4. Build debug APK
+5. Upload artifact **Anek-Browser-APK**
 
-### Signed Release APK
-1. Create keystore:
-```bash
-keytool -genkey -v -keystore anek-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias anek
-```
-2. Create `app/keystore.properties` (never commit!):
-```
-storeFile=/path/to/anek-release.jks
-storePassword=YOUR_STORE_PASSWORD
-keyAlias=anek
-keyPassword=YOUR_KEY_PASSWORD
-```
-3. Update `app/build.gradle.kts` to read signing config (template already supports)
-4. Build:
-```bash
-./gradlew assembleRelease
-```
+**Get APK:** GitHub → Actions → Latest successful workflow → Artifacts → **Anek-Browser-APK**
+
+Release workflow `.github/workflows/release.yml` triggers on tag `v*`:
+
+- Builds release APK
+- Uploads **Anek-Browser-Release-APK**
+- Creates GitHub Release with APK
 
 ## Permissions
 
-| Permission | Purpose | Required? |
-|------------|---------|-----------|
-| INTERNET | Load web pages | Yes |
-| ACCESS_NETWORK_STATE | Detect offline, error pages | Yes |
-| ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION | Geolocation API (user grants per-site) | Optional, runtime |
-| CAMERA, RECORD_AUDIO | WebRTC, camera/mic per-site | Optional, runtime |
-| POST_NOTIFICATIONS | Download notifications (Android 13+) | Optional, runtime |
-| WRITE_EXTERNAL_STORAGE (maxSdk 28) | Downloads on legacy devices | Optional, legacy only |
+| Permission | Purpose |
+|------------|---------|
+| INTERNET | Load pages |
+| ACCESS_NETWORK_STATE | Offline detection |
+| ACCESS_FINE/COARSE_LOCATION | Geolocation (runtime) |
+| CAMERA, RECORD_AUDIO | WebRTC (runtime) |
+| POST_NOTIFICATIONS | Downloads (Android 13+) |
 
-No excessive permissions. Uses scoped storage and FileProvider.
+No excessive permissions. Scoped storage + FileProvider.
 
-## Privacy Limitations
+## Privacy
 
-- **Not a Tor browser**: Incognito does NOT provide anonymity from ISP, employer, or sites. It only prevents local history/cookie storage.
-- **WebView limitations**: Some privacy features depend on system WebView. Third-party cookie blocking uses `setAcceptThirdPartyCookies`.
-- **Safe Browsing**: Architecture ready, but full Google Safe Browsing API integration requires API key and Play Services; current version shows warnings for malicious patterns where detectable.
-- **Fingerprinting**: WebView is fingerprintable; no anti-fingerprinting beyond standard.
-- **Data collection**: App collects no data itself. Visited sites may collect data.
+- Incognito: local history not saved, but ISP/sites may still track. Not Tor.
+- No data collection by app. Sites may collect.
+- Safe browsing via WebView's native safe browsing (Android O+)
+- Third-party cookie blocking via `setAcceptThirdPartyCookies`
 
-## GitHub Actions - Automatic APK Build
+## Quality Checklist
 
-Workflow `.github/workflows/build-apk.yml` builds debug APK on every push/PR:
-
-- Checkout
-- Set up JDK 17
-- Set up Android SDK (API 34, Build-Tools 34.0.0)
-- Cache Gradle
-- Make gradlew executable
-- Build debug APK
-- Upload artifact `anek-browser-debug-apk`
-
-Download APK from Actions tab -> Workflow run -> Artifacts.
-
-### Release Workflow
-
-`.github/workflows/release.yml` builds signed release if keystore secrets are configured (optional).
+- [x] Gradle builds (Room + KSP)
+- [x] Kotlin/Compose compiles
+- [x] AndroidManifest valid
+- [x] No missing resources
+- [x] WebView lifecycle correct
+- [x] Tabs with persistence and swipe
+- [x] History grouped, search, delete
+- [x] Bookmarks with folders
+- [x] Downloads with icons
+- [x] Incognito separate
+- [x] Settings complete (General/Privacy/Browser/Advanced/About)
+- [x] Dark mode, edge-to-edge, dynamic colors
+- [x] GitHub Actions YAML valid, artifact **Anek-Browser-APK**
+- [x] No secrets committed, no token exposed
+- [x] No SSL bypass, no unsafe JS bridges
+- [x] File upload support, fullscreen video
 
 ## Versioning
 
-- `versionName = "1.0.0"`
-- `versionCode = 1`
-
-Change in `app/build.gradle.kts` `defaultConfig`.
-
-## App Icon
-
-Vector adaptive icon in `res/drawable/ic_launcher_foreground.xml` and `mipmap-anydpi-v26`. Professional browser style with "A" monogram.
-
-## No Fake Features
-
-Every visible button either works or is clearly marked as unsupported (e.g., permission denied shows toast with explanation). No placeholder that does nothing.
-
-## Build Validation Checklist
-
-- [x] Package name `com.anek.browser` consistent
-- [x] Gradle Kotlin DSL
-- [x] Compose dependencies with BOM
-- [x] AndroidManifest permissions minimal
-- [x] WebView lifecycle properly destroyed
-- [x] SSL errors not bypassed
-- [x] No hardcoded secrets
-- [x] ProGuard rules for Room, WebView, etc.
-- [x] GitHub Actions workflow valid YAML
-- [x] Offline homepage works (about:home)
-
-## Contributing
-
-See `CONTRIBUTING.md`.
+- v1.1.0 (2) - Chrome-like upgrade
+- v1.0.0 (1) - Initial release
 
 ## License
 
-MIT - see `LICENSE`.
-
-## Acknowledgments
-
-- AndroidX, Jetpack Compose, Material 3 teams
-- WebKit
+MIT - see LICENSE
 
 ## Roadmap
 
-- [ ] Full Room persistence (currently in-memory, Room-ready architecture)
-- [ ] Bookmark import/export HTML
-- [ ] Ad-block list (optional)
 - [ ] Reader mode
-- [ ] Sync (future)
+- [ ] Ad-block lists (optional)
+- [ ] Sync
+- [ ] Extensions API
 
 ---
 
-**Anek Browser** - A serious, standalone browser, not a WebView wrapper demo.
+**Anek Browser** - A real Chrome-like browser, not a WebView demo. Fast, secure, private.

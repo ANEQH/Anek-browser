@@ -30,6 +30,7 @@ fun HistoryScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showClearDialog by remember { mutableStateOf(false) }
+    var selectedItems by remember { mutableStateOf(setOf<Long>()) }
 
     val filtered = if (searchQuery.isBlank()) history
     else history.filter { it.title.contains(searchQuery, true) || it.url.contains(searchQuery, true) }
@@ -50,14 +51,23 @@ fun HistoryScreen(
                     IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
                 },
                 actions = {
+                    if (selectedItems.isNotEmpty()) {
+                        IconButton(onClick = {
+                            selectedItems.forEach { id -> filtered.find { it.id == id }?.let { onDeleteItem(it) } }
+                            selectedItems = emptySet()
+                        }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete selected")
+                        }
+                    }
                     IconButton(onClick = { showClearDialog = true }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Clear")
+                        Icon(Icons.Default.DeleteSweep, contentDescription = "Clear all")
                     }
                 }
             )
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            // Chrome-like search bar
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -71,15 +81,17 @@ fun HistoryScreen(
                     }
                 },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(12.dp)
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                shape = MaterialTheme.shapes.extraLarge
             )
 
             if (filtered.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
-                        Spacer(Modifier.height(12.dp))
-                        Text("No history found", style = MaterialTheme.typography.titleMedium)
+                        Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(72.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                        Spacer(Modifier.height(16.dp))
+                        Text("No history", style = MaterialTheme.typography.titleMedium)
+                        Text("Pages you visit will appear here", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             } else {
@@ -89,19 +101,27 @@ fun HistoryScreen(
                 ) {
                     grouped.forEach { (date, items) ->
                         stickyHeader {
-                            Surface(color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
                                 Text(
                                     date,
                                     style = MaterialTheme.typography.labelLarge,
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
                                 )
                             }
                         }
                         items(items, key = { it.id }) { item ->
                             HistoryItemRow(
                                 item = item,
+                                isSelected = selectedItems.contains(item.id),
                                 onClick = { onItemClick(item) },
-                                onDelete = { onDeleteItem(item) }
+                                onDelete = { onDeleteItem(item) },
+                                onToggleSelect = {
+                                    selectedItems = if (selectedItems.contains(item.id)) selectedItems - item.id else selectedItems + item.id
+                                }
                             )
                         }
                     }
@@ -112,8 +132,8 @@ fun HistoryScreen(
         if (showClearDialog) {
             AlertDialog(
                 onDismissRequest = { showClearDialog = false },
-                title = { Text("Clear history?") },
-                text = { Text("This will permanently delete all browsing history.") },
+                title = { Text("Clear browsing history?") },
+                text = { Text("This will permanently delete all browsing history. This action cannot be undone.") },
                 confirmButton = {
                     TextButton(onClick = {
                         onClearAll()
@@ -132,34 +152,58 @@ fun HistoryScreen(
 @Composable
 fun HistoryItemRow(
     item: HistoryEntity,
+    isSelected: Boolean = false,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onToggleSelect: () -> Unit = {}
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
-    ListItem(
-        headlineContent = { Text(item.title.ifBlank { item.url }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        supportingContent = { Text(item.url, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) },
-        leadingContent = {
-            Surface(
-                shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp))
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .combinedClickable(onClick = onClick, onLongClick = { showMenu = true }),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 2.dp else 0.dp)
+    ) {
+        ListItem(
+            headlineContent = { Text(item.title.ifBlank { item.url }, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium) },
+            supportingContent = {
+                Column {
+                    Text(item.url, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "${item.visitCount} visits • ${item.timestamp.toDateString()}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+            },
+            leadingContent = {
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(item.title.take(1).uppercase().ifBlank { "W" }, style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            },
+            trailingContent = {
+                Box {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "More")
+                    }
+                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        DropdownMenuItem(text = { Text("Open in new tab") }, onClick = { showMenu = false; onClick() }, leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) })
+                        DropdownMenuItem(text = { Text("Copy link") }, onClick = { showMenu = false }, leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) })
+                        DropdownMenuItem(text = { Text("Delete") }, onClick = { showMenu = false; onDelete() }, leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) })
+                    }
                 }
             }
-        },
-        trailingContent = {
-            IconButton(onClick = { showMenu = true }) {
-                Icon(Icons.Default.MoreVert, contentDescription = "More")
-            }
-            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                DropdownMenuItem(text = { Text("Delete") }, onClick = { showMenu = false; onDelete() }, leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) })
-            }
-        },
-        modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = { showMenu = true })
-    )
-    HorizontalDivider()
+        )
+    }
 }
