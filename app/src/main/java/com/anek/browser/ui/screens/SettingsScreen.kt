@@ -3,6 +3,8 @@ package com.anek.browser.ui.screens
 import android.webkit.WebView
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -32,6 +34,23 @@ fun SettingsScreen(
     onUpdateToolbarPosition: (String) -> Unit,
     onUpdateSuggestions: (Boolean) -> Unit = {},
     onUpdateTabRestore: (Boolean) -> Unit = {},
+    // --- v1.2.0 ---
+    onUpdateImages: (Boolean) -> Unit = {},
+    onUpdateDataSaver: (Boolean) -> Unit = {},
+    onUpdateAdBlock: (Boolean) -> Unit = {},
+    onUpdateTrackerBlock: (Boolean) -> Unit = {},
+    onUpdateFullscreenVideo: (Boolean) -> Unit = {},
+    onUpdateKeepScreenOn: (Boolean) -> Unit = {},
+    onUpdateBackgroundAudio: (Boolean) -> Unit = {},
+    onUpdateForceDarkWeb: (Boolean) -> Unit = {},
+    onUpdateUserScripts: (Boolean) -> Unit = {},
+    onUpdateStartup: (String) -> Unit = {},
+    onUpdateHomepageSetting: (String) -> Unit = {},
+    onUpdateUserAgent: (String) -> Unit = {},
+    onUpdateDevTools: (Boolean) -> Unit = {},
+    blockedCount: Int = 0,
+    onOpenUserScripts: () -> Unit = {},
+    onOpenDevTools: () -> Unit = {},
     onClearCookies: () -> Unit,
     onClearCache: () -> Unit,
     onClearWebStorage: () -> Unit,
@@ -46,6 +65,8 @@ fun SettingsScreen(
     var showSearchEngineDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
     var showStartupDialog by remember { mutableStateOf(false) }
+    var showHomepageDialog by remember { mutableStateOf(false) }
+    var showUaDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -64,7 +85,12 @@ fun SettingsScreen(
                 SettingsSectionCard(title = "General", icon = Icons.Default.Settings) {
                     SettingsRowClickable(title = "Search engine", subtitle = settings.searchEngine.displayName, onClick = { showSearchEngineDialog = true })
                     SettingsRowClickable(title = "Theme", subtitle = settings.theme, onClick = { showThemeDialog = true })
-                    SettingsRowClickable(title = "Homepage", subtitle = settings.homepage, onClick = {})
+                    SettingsRowClickable(
+                        title = "Homepage",
+                        subtitle = if (settings.homepage == com.anek.browser.utils.Constants.HOME_PAGE_URL)
+                            "New tab page" else settings.homepage,
+                        onClick = { showHomepageDialog = true }
+                    )
                     SettingsRowClickable(
                         title = "On startup",
                         subtitle = when (settings.startupBehavior) {
@@ -119,16 +145,122 @@ fun SettingsScreen(
             }
 
             item {
+                SettingsSectionCard(title = "Speed & data", icon = Icons.Default.Speed) {
+                    SettingsRowSwitch(
+                        title = "Load images",
+                        subtitle = "Turn off for the fastest possible pages on slow networks",
+                        checked = settings.imagesEnabled,
+                        onCheckedChange = onUpdateImages
+                    )
+                    SettingsRowSwitch(
+                        title = "Data saver",
+                        subtitle = "Strip utm_*, fbclid, gclid and other tracking parameters from links",
+                        checked = settings.dataSaver,
+                        onCheckedChange = onUpdateDataSaver
+                    )
+                    SettingsRowSwitch(
+                        title = "Force dark web content",
+                        subtitle = "Ask WebView to darken sites with no dark mode of their own",
+                        checked = settings.forceDarkWebContent,
+                        onCheckedChange = onUpdateForceDarkWeb
+                    )
+                }
+            }
+
+            item {
+                SettingsSectionCard(title = "Ad & tracker blocking", icon = Icons.Default.Shield) {
+                    SettingsRowSwitch(
+                        title = "Block ads",
+                        subtitle = "Ad networks, pop-unders and ad frames",
+                        checked = settings.adBlockEnabled,
+                        onCheckedChange = onUpdateAdBlock
+                    )
+                    SettingsRowSwitch(
+                        title = "Block trackers",
+                        subtitle = "Analytics and cross-site tracking",
+                        checked = settings.trackerBlockEnabled,
+                        onCheckedChange = onUpdateTrackerBlock
+                    )
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    SettingsRowClickable(
+                        title = "Requests blocked",
+                        subtitle = "$blockedCount since app start • custom rules in Developer options",
+                        onClick = {}
+                    )
+                }
+            }
+
+            item {
+                SettingsSectionCard(title = "Media", icon = Icons.Default.PlayCircle) {
+                    SettingsRowSwitch(
+                        title = "Fullscreen video",
+                        subtitle = "Let videos take over the whole screen",
+                        checked = settings.fullscreenVideo,
+                        onCheckedChange = onUpdateFullscreenVideo
+                    )
+                    SettingsRowSwitch(
+                        title = "Keep screen on while playing",
+                        subtitle = "Prevent the display sleeping during fullscreen video",
+                        checked = settings.keepScreenOnVideo,
+                        onCheckedChange = onUpdateKeepScreenOn
+                    )
+                    SettingsRowSwitch(
+                        title = "Background audio",
+                        subtitle = "Try to keep audio playing when the app is backgrounded",
+                        checked = settings.backgroundAudio,
+                        onCheckedChange = onUpdateBackgroundAudio
+                    )
+                }
+            }
+
+            item {
+                SettingsSectionCard(title = "Extensions & scripts", icon = Icons.Default.Extension) {
+                    SettingsRowSwitch(
+                        title = "User scripts",
+                        subtitle = "Inject your own JavaScript into matching pages",
+                        checked = settings.userscriptsEnabled,
+                        onCheckedChange = onUpdateUserScripts
+                    )
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    SettingsRowClickable(
+                        title = "Manage user scripts",
+                        subtitle = "Chrome extensions cannot run in Android WebView — user scripts are the supported equivalent",
+                        onClick = onOpenUserScripts
+                    )
+                }
+            }
+
+            item {
                 val webViewVersion = try {
                     WebView.getCurrentWebViewPackage()?.versionName ?: "Unknown"
                 } catch (_: Exception) { "Unknown" }
-                val userAgent = try {
-                    android.webkit.WebSettings.getDefaultUserAgent(context)
-                } catch (_: Exception) { "Unknown" }
+                val userAgent = settings.customUserAgent.ifBlank {
+                    try {
+                        android.webkit.WebSettings.getDefaultUserAgent(context)
+                    } catch (_: Exception) { "Unknown" }
+                }
 
                 SettingsSectionCard(title = "Advanced", icon = Icons.Default.Build) {
                     SettingsRowClickable(title = "WebView version", subtitle = webViewVersion, onClick = {})
-                    SettingsRowClickable(title = "User agent", subtitle = userAgent.take(80) + "...", onClick = {})
+                    SettingsRowClickable(
+                        title = "User agent",
+                        subtitle = userAgent.take(80) + "…",
+                        onClick = { showUaDialog = true }
+                    )
+                    SettingsRowSwitch(
+                        title = "Developer options",
+                        subtitle = "Unlock remote debugging, live console, feature flags and test pages",
+                        checked = settings.devToolsEnabled,
+                        onCheckedChange = onUpdateDevTools
+                    )
+                    if (settings.devToolsEnabled) {
+                        SettingsRowClickable(
+                            title = "Open Developer options",
+                            subtitle = "Diagnostics and flags",
+                            onClick = onOpenDevTools
+                        )
+                    }
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     SettingsRowClickable(title = "Reset settings", subtitle = "Restore defaults", onClick = { showResetDialog = true })
                 }
             }
@@ -197,33 +329,41 @@ fun SettingsScreen(
             onDismissRequest = { showSearchEngineDialog = false },
             title = { Text("Search engine") },
             text = {
-                Column {
-                    SearchEngine.values().forEach { engine ->
-                        ListItem(
-                            headlineContent = { Text(engine.displayName) },
-                            trailingContent = {
-                                if (engine == settings.searchEngine) Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                // The previous version rendered this list twice: once as static
+                // ListItems and again as clickable Surfaces, so every engine
+                // appeared two times.
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 360.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    SearchEngine.entries.forEach { engine ->
+                        Surface(
+                            onClick = {
+                                onUpdateSearchEngine(engine)
+                                showSearchEngineDialog = false
                             },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        HorizontalDivider()
-                    }
-                    // Make clickable via surface
-                    Column {
-                        SearchEngine.values().forEach { engine ->
-                            Surface(
-                                onClick = { onUpdateSearchEngine(engine); showSearchEngineDialog = false },
-                                modifier = Modifier.fillMaxWidth(),
-                                color = if (engine == settings.searchEngine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-                            ) {
-                                ListItem(
-                                    headlineContent = { Text(engine.displayName) },
-                                    supportingContent = { Text(engine.homepageUrl, style = MaterialTheme.typography.bodySmall) },
-                                    trailingContent = {
-                                        if (engine == settings.searchEngine) Icon(Icons.Default.Check, contentDescription = null)
+                            modifier = Modifier.fillMaxWidth(),
+                            color = if (engine == settings.searchEngine)
+                                MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surface
+                        ) {
+                            ListItem(
+                                headlineContent = { Text(engine.displayName) },
+                                supportingContent = {
+                                    Text(engine.homepageUrl, style = MaterialTheme.typography.bodySmall)
+                                },
+                                trailingContent = {
+                                    if (engine == settings.searchEngine) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
                                     }
-                                )
-                            }
+                                }
+                            )
                         }
                     }
                 }
@@ -267,7 +407,11 @@ fun SettingsScreen(
             onDismissRequest = { showStartupDialog = false },
             title = { Text("On startup") },
             text = {
-                Column {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                ) {
                     listOf(
                         "RESTORE" to "Restore previous tabs",
                         "HOME" to "Open homepage",
@@ -275,22 +419,113 @@ fun SettingsScreen(
                     ).forEach { (value, label) ->
                         Surface(
                             onClick = {
-                                // Use updateHomepage for startup behavior? We have separate key
-                                // For now update via settings repo directly using same method? We'll use toolbar as placeholder
-                                // Actually we need to add method, but for quick we use update
-                                // We'll just call via onUpdateToolbarPosition hack? No, we need proper
-                                // Let's just update theme as placeholder and handle via viewModel
+                                // This used to be a no-op placeholder, so the
+                                // setting was displayed but never saved.
+                                onUpdateStartup(value)
                                 showStartupDialog = false
                             },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            color = if (value == settings.startupBehavior)
+                                MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surface
                         ) {
-                            ListItem(headlineContent = { Text(label) })
+                            ListItem(
+                                headlineContent = { Text(label) },
+                                trailingContent = {
+                                    if (value == settings.startupBehavior) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            )
                         }
                     }
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showStartupDialog = false }) { Text("Close") }
+            }
+        )
+    }
+
+    if (showHomepageDialog) {
+        var homepage by remember { mutableStateOf(settings.homepage) }
+        AlertDialog(
+            onDismissRequest = { showHomepageDialog = false },
+            title = { Text("Homepage") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = homepage,
+                        onValueChange = { homepage = it },
+                        label = { Text("URL") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Quick picks",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AssistChip(onClick = { homepage = com.anek.browser.utils.Constants.HOME_PAGE_URL }, label = { Text("New tab page") })
+                        AssistChip(onClick = { homepage = "https://www.google.com" }, label = { Text("Google") })
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AssistChip(onClick = { homepage = "https://duckduckgo.com" }, label = { Text("DuckDuckGo") })
+                        AssistChip(onClick = { homepage = "https://www.wikipedia.org" }, label = { Text("Wikipedia") })
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onUpdateHomepageSetting(homepage.trim().ifBlank { com.anek.browser.utils.Constants.HOME_PAGE_URL })
+                    showHomepageDialog = false
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showHomepageDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showUaDialog) {
+        var ua by remember { mutableStateOf(settings.customUserAgent) }
+        AlertDialog(
+            onDismissRequest = { showUaDialog = false },
+            title = { Text("User agent") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = ua,
+                        onValueChange = { ua = it },
+                        label = { Text("Leave blank for the default") },
+                        minLines = 3,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Current default: ${
+                            try { android.webkit.WebSettings.getDefaultUserAgent(context) } catch (_: Exception) { "unknown" }
+                        }",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onUpdateUserAgent(ua.trim())
+                    showUaDialog = false
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUaDialog = false }) { Text("Cancel") }
             }
         )
     }

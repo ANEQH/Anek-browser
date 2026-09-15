@@ -3,6 +3,7 @@ package com.anek.browser.browser
 import android.app.Application
 import android.webkit.CookieManager
 import android.webkit.WebStorage
+import android.webkit.WebView
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.anek.browser.data.datastore.BrowserSettings
@@ -11,11 +12,17 @@ import com.anek.browser.database.AppDatabase
 import com.anek.browser.database.entity.BookmarkEntity
 import com.anek.browser.database.entity.HistoryEntity
 import com.anek.browser.database.entity.ShortcutEntity
+import com.anek.browser.database.entity.UserScriptEntity
 import com.anek.browser.utils.Constants
+import com.anek.browser.web.AdBlocker
+import com.anek.browser.web.ConsoleEntry
+import com.anek.browser.web.ConsoleLog
+import com.anek.browser.web.UserScriptEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.lang.ref.WeakReference
 
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -68,6 +75,42 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     val downloads = db.downloadDao().getAllDownloads()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // --- User scripts (the Android stand-in for extensions) ----------------
+    val userScripts: StateFlow<List<UserScriptEntity>> = db.userScriptDao().getAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val userScriptEngine = UserScriptEngine(db.userScriptDao(), viewModelScope)
+
+    /** Exposed so WebViewComponent can inject without touching Room itself. */
+    val scriptEngine: UserScriptEngine get() = userScriptEngine
+
+    // --- Developer options -------------------------------------------------
+    val consoleEntries: StateFlow<List<ConsoleEntry>> = ConsoleLog.entries
+
+    private val _pageSource = MutableStateFlow<String?>(null)
+    val pageSource: StateFlow<String?> = _pageSource.asStateFlow()
+
+    private val _blockedCount = MutableStateFlow(0)
+    val blockedCount: StateFlow<Int> = _blockedCount.asStateFlow()
+
+    /** Last completed page load duration in ms (0 while loading). */
+    private val _lastLoadMillis = MutableStateFlow(0L)
+    val lastLoadMillis: StateFlow<Long> = _lastLoadMillis.asStateFlow()
+
+    private var loadStartNanos = 0L
+
+    /**
+     * The WebView currently on screen. Held weakly: the view is owned by the
+     * composition and must not be leaked by the ViewModel.
+     */
+    private var activeWebViewRef = WeakReference<WebView>(null)
+
+    fun setActiveWebView(webView: WebView?) {
+        activeWebViewRef = WeakReference(webView)
+    }
+
+    fun activeWebView(): WebView? = activeWebViewRef.get()
+
     // Omnibox suggestions combining history + bookmarks + search
     val omniboxSuggestions: StateFlow<List<OmniboxSuggestion>> = combine(
         _omniboxText,
@@ -80,33 +123,53 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
-        // Restore tabs from persistence
         viewModelScope.launch {
-            settingsRepo.tabsFlow.collect { (persistedTabs, currentId) ->
-                if (persistedTabs.isNotEmpty() && settings.value.tabRestoreEnabled) {
+            /*
+             * 1. Restore persisted tabs BEFORE the auto-saver starts.
+             *
+             * The previous implementation ran both collectors concurrently and
+             * left the restore collector running forever, so every write from
+             * the auto-saver re-triggered a restore. On a cold start that also
+             * raced: the saver could persist the default single empty tab and
+             * then the restore would overwrite live tabs with stale data.
+             */
+            if (settings.value.tabRestoreEnabled) {
+                try {
+                    val (persistedTabs, currentId) = settingsRepo.tabsFlow.first()
                     val restored = persistedTabs
-                        .filterNot { it.isIncognito } // don't restore incognito
+                        .filterNot { it.isIncognito } // never restore incognito
                         .map { it.toTab() }
                         .take(Constants.MAX_TABS)
                     if (restored.isNotEmpty()) {
                         _tabs.value = restored
-                        _currentTabId.value = currentId?.takeIf { id -> restored.any { it.id == id } } ?: restored.last().id
+                        _currentTabId.value =
+                            currentId?.takeIf { id -> restored.any { it.id == id } }
+                                ?: restored.last().id
+                    }
+                } catch (_: Exception) { /* keep the default tab */ }
+            }
+
+            // 2. Persist on every change from here on.
+            combine(_tabs, _currentTabId) { tabs, currentId -> tabs to currentId }
+                .collect { (tabs, currentId) ->
+                    withContext(Dispatchers.IO) {
+                        val toPersist = tabs
+                            .filterNot { it.isIncognito }
+                            .map { PersistedTab.fromTab(it) }
+                        settingsRepo.saveTabs(toPersist, currentId)
                     }
                 }
-            }
         }
 
-        // Auto-save tabs when they change
+        userScriptEngine.startCaching()
+
+        // Publish the blocked-request counter on a slow tick. AdBlocker mutates
+        // an AtomicInteger from the network thread; polling once a second keeps
+        // recomposition off the hot path entirely.
         viewModelScope.launch {
-            combine(_tabs, _currentTabId) { tabs, currentId ->
-                tabs to currentId
-            }.collect { (tabs, currentId) ->
-                withContext(Dispatchers.IO) {
-                    val toPersist = tabs
-                        .filterNot { it.isIncognito }
-                        .map { PersistedTab.fromTab(it) }
-                    settingsRepo.saveTabs(toPersist, currentId)
-                }
+            while (true) {
+                _blockedCount.value = AdBlocker.blockedCount.get()
+                kotlinx.coroutines.delay(1000)
             }
         }
     }
@@ -418,6 +481,110 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _findInPageQuery.value = query
     }
 
+    // --- Page load timing (performance overlay) ---------------------------
+
+    fun onPageLoadStarted() {
+        loadStartNanos = System.nanoTime()
+        _lastLoadMillis.value = 0L
+    }
+
+    fun onPageLoadFinished() {
+        if (loadStartNanos != 0L) {
+            _lastLoadMillis.value = (System.nanoTime() - loadStartNanos) / 1_000_000L
+            loadStartNanos = 0L
+        }
+    }
+
+    // --- Developer options actions ----------------------------------------
+
+    /** Grabs the live DOM (not the original HTML) for the current page. */
+    fun capturePageSource() {
+        val wv = activeWebView() ?: run { _pageSource.value = null; return }
+        if (wv.url.isNullOrBlank() || wv.url!!.startsWith("about:")) {
+            _pageSource.value = "<!-- internal page, no source available -->"
+            return
+        }
+        wv.evaluateJavascript(
+            "'<!DOCTYPE html>\\n' + document.documentElement.outerHTML"
+        ) { result ->
+            _pageSource.value = result
+                ?.removeSurrounding("\"")
+                ?.replace("\\n", "\n")
+                ?.replace("\\\"", "\"")
+                ?.replace("\\/", "/")
+                ?.replace("\\t", "\t")
+        }
+    }
+
+    fun clearPageSource() {
+        _pageSource.value = null
+    }
+
+    fun hardReload() {
+        activeWebView()?.let { wv ->
+            wv.clearCache(false)
+            wv.loadUrl(wv.url ?: return@let, mapOf("Cache-Control" to "no-cache"))
+        }
+    }
+
+    fun runJavaScript(code: String) {
+        if (code.isBlank()) return
+        val wv = activeWebView() ?: run {
+            ConsoleLog.add(com.anek.browser.web.ConsoleLevel.ERROR, "No active WebView")
+            return
+        }
+        wv.evaluateJavascript(code) { result ->
+            ConsoleLog.add(
+                com.anek.browser.web.ConsoleLevel.TIP,
+                "⇒ ${result ?: "null"}",
+                "evaluateJavascript"
+            )
+        }
+    }
+
+    fun clearConsole() = ConsoleLog.clear()
+
+    /**
+     * Flips WebView remote debugging at runtime. This used to be hard-coded on
+     * in Application.onCreate, which left every release build inspectable by
+     * anyone with a USB cable.
+     */
+    fun applyRemoteDebugging(enabled: Boolean) {
+        try {
+            WebView.setWebContentsDebuggingEnabled(enabled)
+        } catch (_: Throwable) { }
+    }
+
+    // --- User scripts ------------------------------------------------------
+
+    fun saveUserScript(script: UserScriptEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (script.id == 0L) db.userScriptDao().insert(script)
+            else db.userScriptDao().update(script)
+        }
+    }
+
+    fun deleteUserScript(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) { db.userScriptDao().deleteById(id) }
+    }
+
+    fun setUserScriptEnabled(id: Long, enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) { db.userScriptDao().setEnabled(id, enabled) }
+    }
+
+    fun clearUserScripts() {
+        viewModelScope.launch(Dispatchers.IO) { db.userScriptDao().clearAll() }
+    }
+
+    // --- Blocking ----------------------------------------------------------
+
+    /** Parses the user blocklist once per settings change instead of per request. */
+    val customBlockDomains: Set<String> = settings
+        .map { AdBlocker.parseCustomList(it.customBlocklist) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    fun resetBlockedCount() = AdBlocker.resetCounter()
+
     // Settings delegates
     fun updateSearchEngine(engine: SearchEngine) {
         viewModelScope.launch { settingsRepo.updateSearchEngine(engine) }
@@ -477,6 +644,86 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun updateTabRestoreEnabled(enabled: Boolean) {
         viewModelScope.launch { settingsRepo.updateTabRestoreEnabled(enabled) }
+    }
+
+    // Performance
+    fun updateImagesEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepo.updateImagesEnabled(enabled) }
+    }
+
+    fun updateDataSaver(enabled: Boolean) {
+        viewModelScope.launch { settingsRepo.updateDataSaver(enabled) }
+    }
+
+    fun updatePrefetchEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepo.updatePrefetchEnabled(enabled) }
+    }
+
+    // Blocking
+    fun updateAdBlockEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepo.updateAdBlockEnabled(enabled) }
+    }
+
+    fun updateTrackerBlockEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepo.updateTrackerBlockEnabled(enabled) }
+    }
+
+    fun updateCustomBlocklist(list: String) {
+        viewModelScope.launch { settingsRepo.updateCustomBlocklist(list) }
+    }
+
+    // Media
+    fun updateFullscreenVideo(enabled: Boolean) {
+        viewModelScope.launch { settingsRepo.updateFullscreenVideo(enabled) }
+    }
+
+    fun updateKeepScreenOnVideo(enabled: Boolean) {
+        viewModelScope.launch { settingsRepo.updateKeepScreenOnVideo(enabled) }
+    }
+
+    fun updateBackgroundAudio(enabled: Boolean) {
+        viewModelScope.launch { settingsRepo.updateBackgroundAudio(enabled) }
+    }
+
+    // Appearance
+    fun updateForceDarkWebContent(enabled: Boolean) {
+        viewModelScope.launch { settingsRepo.updateForceDarkWebContent(enabled) }
+    }
+
+    fun updateHideStatusBar(enabled: Boolean) {
+        viewModelScope.launch { settingsRepo.updateHideStatusBar(enabled) }
+    }
+
+    // Developer options
+    fun updateDevToolsEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepo.updateDevToolsEnabled(enabled) }
+    }
+
+    fun updateRemoteDebugging(enabled: Boolean) {
+        applyRemoteDebugging(enabled)
+        viewModelScope.launch { settingsRepo.updateRemoteDebugging(enabled) }
+    }
+
+    fun updateCaptureConsole(enabled: Boolean) {
+        if (!enabled) ConsoleLog.clear()
+        viewModelScope.launch { settingsRepo.updateCaptureConsole(enabled) }
+    }
+
+    fun updateShowPerfOverlay(enabled: Boolean) {
+        viewModelScope.launch { settingsRepo.updateShowPerfOverlay(enabled) }
+    }
+
+    // User scripts
+    fun updateUserScriptsEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepo.updateUserScriptsEnabled(enabled) }
+    }
+
+    fun updateCustomUserAgent(agent: String) {
+        viewModelScope.launch { settingsRepo.updateCustomUserAgent(agent) }
+    }
+
+    fun updateStartupBehavior(behavior: String) {
+        viewModelScope.launch { settingsRepo.updateStartupBehavior(behavior) }
     }
 
     fun resetSettings() {

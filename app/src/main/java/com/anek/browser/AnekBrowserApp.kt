@@ -1,12 +1,9 @@
 package com.anek.browser
 
 import android.app.Application
-import android.webkit.WebView
 import com.anek.browser.database.AppDatabase
 import com.anek.browser.data.datastore.SettingsRepository
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import com.anek.browser.web.WebViewWarmup
 
 class AnekBrowserApp : Application() {
 
@@ -16,15 +13,19 @@ class AnekBrowserApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        try {
-            WebView.setWebContentsDebuggingEnabled(true)
-        } catch (_: Exception) {}
+        /*
+         * Load the WebView provider now, behind the splash screen, instead of on
+         * the user's first tap. See WebViewWarmup for why a pooled instance is
+         * deliberately not used.
+         *
+         * `WebView.setWebContentsDebuggingEnabled(true)` used to be called here
+         * unconditionally. That made every release build inspectable by anyone
+         * with a USB cable; it is now a Developer options toggle applied by
+         * MainActivity from the persisted setting.
+         */
+        WebViewWarmup.warmUp(this)
 
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                // Preload settings
-                settingsRepository.settingsFlow.collect { _ -> }
-            } catch (_: Exception) {}
-        }
+        // Touch the database so the first Room query isn't paid on the UI thread.
+        database
     }
 }

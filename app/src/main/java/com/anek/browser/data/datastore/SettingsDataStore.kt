@@ -41,6 +41,34 @@ object SettingsKeys {
     val SUGGESTIONS_ENABLED = booleanPreferencesKey("suggestions_enabled")
     val TAB_RESTORE_ENABLED = booleanPreferencesKey("tab_restore_enabled")
     val CLOSE_TABS_ON_EXIT = booleanPreferencesKey("close_tabs_on_exit")
+
+    // --- Performance -------------------------------------------------------
+    val IMAGES_ENABLED = booleanPreferencesKey("images_enabled")
+    val DATA_SAVER = booleanPreferencesKey("data_saver")
+    val PREFETCH_ENABLED = booleanPreferencesKey("prefetch_enabled")
+
+    // --- Blocking ----------------------------------------------------------
+    val AD_BLOCK_ENABLED = booleanPreferencesKey("ad_block_enabled")
+    val TRACKER_BLOCK_ENABLED = booleanPreferencesKey("tracker_block_enabled")
+    val CUSTOM_BLOCKLIST = stringPreferencesKey("custom_blocklist") // newline separated
+
+    // --- Media -------------------------------------------------------------
+    val FULLSCREEN_VIDEO = booleanPreferencesKey("fullscreen_video")
+    val KEEP_SCREEN_ON_VIDEO = booleanPreferencesKey("keep_screen_on_video")
+    val BACKGROUND_AUDIO = booleanPreferencesKey("background_audio")
+
+    // --- Appearance --------------------------------------------------------
+    val FORCE_DARK_WEB_CONTENT = booleanPreferencesKey("force_dark_web_content")
+    val HIDE_STATUS_BAR = booleanPreferencesKey("hide_status_bar")
+
+    // --- Developer options -------------------------------------------------
+    val DEV_TOOLS_ENABLED = booleanPreferencesKey("dev_tools_enabled")
+    val REMOTE_DEBUGGING = booleanPreferencesKey("remote_debugging")
+    val CAPTURE_CONSOLE = booleanPreferencesKey("capture_console")
+    val SHOW_PERF_OVERLAY = booleanPreferencesKey("show_perf_overlay")
+
+    // --- User scripts ------------------------------------------------------
+    val USERSCRIPTS_ENABLED = booleanPreferencesKey("userscripts_enabled")
 }
 
 data class BrowserSettings(
@@ -67,7 +95,35 @@ data class BrowserSettings(
     val customUserAgent: String = "",
     val suggestionsEnabled: Boolean = true,
     val tabRestoreEnabled: Boolean = true,
-    val closeTabsOnExit: Boolean = false
+    val closeTabsOnExit: Boolean = false,
+
+    // Performance
+    val imagesEnabled: Boolean = true,
+    val dataSaver: Boolean = false,
+    val prefetchEnabled: Boolean = true,
+
+    // Blocking
+    val adBlockEnabled: Boolean = true,
+    val trackerBlockEnabled: Boolean = true,
+    val customBlocklist: String = "",
+
+    // Media
+    val fullscreenVideo: Boolean = true,
+    val keepScreenOnVideo: Boolean = true,
+    val backgroundAudio: Boolean = false,
+
+    // Appearance
+    val forceDarkWebContent: Boolean = false,
+    val hideStatusBar: Boolean = false,
+
+    // Developer options
+    val devToolsEnabled: Boolean = false,
+    val remoteDebugging: Boolean = false,
+    val captureConsole: Boolean = false,
+    val showPerfOverlay: Boolean = false,
+
+    // User scripts
+    val userscriptsEnabled: Boolean = true
 )
 
 class SettingsRepository(private val context: Context) {
@@ -99,7 +155,29 @@ class SettingsRepository(private val context: Context) {
             customUserAgent = prefs[SettingsKeys.CUSTOM_USER_AGENT] ?: "",
             suggestionsEnabled = prefs[SettingsKeys.SUGGESTIONS_ENABLED] ?: true,
             tabRestoreEnabled = prefs[SettingsKeys.TAB_RESTORE_ENABLED] ?: true,
-            closeTabsOnExit = prefs[SettingsKeys.CLOSE_TABS_ON_EXIT] ?: false
+            closeTabsOnExit = prefs[SettingsKeys.CLOSE_TABS_ON_EXIT] ?: false,
+
+            imagesEnabled = prefs[SettingsKeys.IMAGES_ENABLED] ?: true,
+            dataSaver = prefs[SettingsKeys.DATA_SAVER] ?: false,
+            prefetchEnabled = prefs[SettingsKeys.PREFETCH_ENABLED] ?: true,
+
+            adBlockEnabled = prefs[SettingsKeys.AD_BLOCK_ENABLED] ?: true,
+            trackerBlockEnabled = prefs[SettingsKeys.TRACKER_BLOCK_ENABLED] ?: true,
+            customBlocklist = prefs[SettingsKeys.CUSTOM_BLOCKLIST] ?: "",
+
+            fullscreenVideo = prefs[SettingsKeys.FULLSCREEN_VIDEO] ?: true,
+            keepScreenOnVideo = prefs[SettingsKeys.KEEP_SCREEN_ON_VIDEO] ?: true,
+            backgroundAudio = prefs[SettingsKeys.BACKGROUND_AUDIO] ?: false,
+
+            forceDarkWebContent = prefs[SettingsKeys.FORCE_DARK_WEB_CONTENT] ?: false,
+            hideStatusBar = prefs[SettingsKeys.HIDE_STATUS_BAR] ?: false,
+
+            devToolsEnabled = prefs[SettingsKeys.DEV_TOOLS_ENABLED] ?: false,
+            remoteDebugging = prefs[SettingsKeys.REMOTE_DEBUGGING] ?: false,
+            captureConsole = prefs[SettingsKeys.CAPTURE_CONSOLE] ?: false,
+            showPerfOverlay = prefs[SettingsKeys.SHOW_PERF_OVERLAY] ?: false,
+
+            userscriptsEnabled = prefs[SettingsKeys.USERSCRIPTS_ENABLED] ?: true
         )
     }
 
@@ -213,6 +291,82 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun updateTabRestoreEnabled(enabled: Boolean) {
         context.settingsDataStore.edit { it[SettingsKeys.TAB_RESTORE_ENABLED] = enabled }
+    }
+
+    // --- Performance -------------------------------------------------------
+
+    suspend fun updateImagesEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.IMAGES_ENABLED] = enabled }
+    }
+
+    suspend fun updateDataSaver(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.DATA_SAVER] = enabled }
+    }
+
+    suspend fun updatePrefetchEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.PREFETCH_ENABLED] = enabled }
+    }
+
+    // --- Blocking ----------------------------------------------------------
+
+    suspend fun updateAdBlockEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.AD_BLOCK_ENABLED] = enabled }
+    }
+
+    suspend fun updateTrackerBlockEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.TRACKER_BLOCK_ENABLED] = enabled }
+    }
+
+    suspend fun updateCustomBlocklist(list: String) {
+        context.settingsDataStore.edit { it[SettingsKeys.CUSTOM_BLOCKLIST] = list }
+    }
+
+    // --- Media -------------------------------------------------------------
+
+    suspend fun updateFullscreenVideo(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.FULLSCREEN_VIDEO] = enabled }
+    }
+
+    suspend fun updateKeepScreenOnVideo(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.KEEP_SCREEN_ON_VIDEO] = enabled }
+    }
+
+    suspend fun updateBackgroundAudio(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.BACKGROUND_AUDIO] = enabled }
+    }
+
+    // --- Appearance --------------------------------------------------------
+
+    suspend fun updateForceDarkWebContent(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.FORCE_DARK_WEB_CONTENT] = enabled }
+    }
+
+    suspend fun updateHideStatusBar(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.HIDE_STATUS_BAR] = enabled }
+    }
+
+    // --- Developer options -------------------------------------------------
+
+    suspend fun updateDevToolsEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.DEV_TOOLS_ENABLED] = enabled }
+    }
+
+    suspend fun updateRemoteDebugging(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.REMOTE_DEBUGGING] = enabled }
+    }
+
+    suspend fun updateCaptureConsole(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.CAPTURE_CONSOLE] = enabled }
+    }
+
+    suspend fun updateShowPerfOverlay(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.SHOW_PERF_OVERLAY] = enabled }
+    }
+
+    // --- User scripts ------------------------------------------------------
+
+    suspend fun updateUserScriptsEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[SettingsKeys.USERSCRIPTS_ENABLED] = enabled }
     }
 
     suspend fun clearAll() {

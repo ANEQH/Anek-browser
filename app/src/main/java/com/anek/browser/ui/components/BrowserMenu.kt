@@ -1,7 +1,9 @@
 package com.anek.browser.ui.components
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -25,18 +27,31 @@ fun BrowserMenuSheet(
     onAddShortcut: () -> Unit,
     onOpenExternally: () -> Unit,
     onClose: () -> Unit,
+    // --- v1.2.0 additions ---
+    onNewTab: () -> Unit = {},
+    onNewIncognitoTab: () -> Unit = {},
+    onReload: () -> Unit = {},
+    onRestoreClosedTab: () -> Unit = {},
+    canRestoreClosedTab: Boolean = false,
+    onDevTools: () -> Unit = {},
+    devToolsEnabled: Boolean = false,
+    onUserScripts: () -> Unit = {},
+    blockedCount: Int = 0,
+    adBlockEnabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        // Chrome-like top actions grid
+        // Chrome-like quick actions
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
+            MenuActionButton(Icons.Default.Add, "New tab", onNewTab)
             MenuActionButton(
                 icon = if (isBookmarked) Icons.Default.Star else Icons.Default.StarBorder,
                 label = if (isBookmarked) "Bookmarked" else "Bookmark",
@@ -57,6 +72,14 @@ fun BrowserMenuSheet(
         HorizontalDivider()
         Spacer(Modifier.height(8.dp))
 
+        if (adBlockEnabled) {
+            AssistChipRow(
+                icon = Icons.Default.Shield,
+                label = if (blockedCount > 0) "$blockedCount requests blocked" else "Ad & tracker blocking on"
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -65,14 +88,26 @@ fun BrowserMenuSheet(
             Column(modifier = Modifier.padding(vertical = 4.dp)) {
                 DropdownMenuItem(
                     text = { Text("New tab") },
-                    onClick = onClose,
+                    onClick = onNewTab,
                     leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) }
                 )
                 DropdownMenuItem(
                     text = { Text("New incognito tab") },
-                    onClick = onClose,
+                    onClick = onNewIncognitoTab,
                     leadingIcon = { Icon(Icons.Default.Security, contentDescription = null) }
                 )
+                DropdownMenuItem(
+                    text = { Text("Reload") },
+                    onClick = onReload,
+                    leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) }
+                )
+                if (canRestoreClosedTab) {
+                    DropdownMenuItem(
+                        text = { Text("Reopen closed tab") },
+                        onClick = onRestoreClosedTab,
+                        leadingIcon = { Icon(Icons.Default.Undo, contentDescription = null) }
+                    )
+                }
             }
         }
 
@@ -106,6 +141,12 @@ fun BrowserMenuSheet(
             onClick = onBookmarks,
             leadingIcon = { Icon(Icons.Default.Bookmarks, contentDescription = null) }
         )
+        DropdownMenuItem(
+            text = { Text("User scripts") },
+            onClick = onUserScripts,
+            leadingIcon = { Icon(Icons.Default.Code, contentDescription = null) },
+            supportingText = { Text("Inject JavaScript into pages") }
+        )
 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
@@ -114,11 +155,13 @@ fun BrowserMenuSheet(
             onClick = onSettings,
             leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) }
         )
-        DropdownMenuItem(
-            text = { Text("Help & feedback") },
-            onClick = onClose,
-            leadingIcon = { Icon(Icons.Default.HelpOutline, contentDescription = null) }
-        )
+        if (devToolsEnabled) {
+            DropdownMenuItem(
+                text = { Text("Developer options") },
+                onClick = onDevTools,
+                leadingIcon = { Icon(Icons.Default.BugReport, contentDescription = null) }
+            )
+        }
 
         Spacer(Modifier.height(16.dp))
         Text(
@@ -127,7 +170,28 @@ fun BrowserMenuSheet(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.align(Alignment.CenterHorizontally)
         )
+        Spacer(Modifier.height(8.dp))
     }
+}
+
+@Composable
+private fun AssistChipRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String
+) {
+    AssistChip(
+        onClick = {},
+        enabled = false,
+        label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+        leadingIcon = {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+    )
 }
 
 @Composable
@@ -141,7 +205,8 @@ private fun MenuActionButton(
         FilledTonalIconButton(
             onClick = onClick,
             colors = IconButtonDefaults.filledTonalIconButtonColors(
-                containerColor = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+                containerColor = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceContainerHigh
             )
         ) {
             Icon(icon, contentDescription = label)

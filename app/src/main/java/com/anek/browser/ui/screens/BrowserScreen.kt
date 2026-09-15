@@ -1,17 +1,23 @@
 package com.anek.browser.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.anek.browser.browser.BrowserViewModel
 import com.anek.browser.browser.Tab
 import com.anek.browser.data.datastore.BrowserSettings
@@ -27,12 +33,17 @@ fun BrowserScreen(
     tab: Tab?,
     settings: BrowserSettings,
     viewModel: BrowserViewModel,
+    blockedCount: Int = 0,
+    lastLoadMillis: Long = 0L,
+    customBlockDomains: Set<String> = emptySet(),
     onNavigateHome: () -> Unit,
     onTabsClick: () -> Unit,
     onHistoryClick: () -> Unit,
     onBookmarksClick: () -> Unit,
     onDownloadsClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onDevToolsClick: () -> Unit = {},
+    onUserScriptsClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -50,7 +61,47 @@ fun BrowserScreen(
     var findMatch by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
 
+    // --- Site permission prompts -------------------------------------------
+    // Previously every WebView permission request was denied outright, so
+    // camera, microphone and geolocation never worked on any site.
+    var pendingPermissionCallback by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        pendingPermissionCallback?.invoke(result.values.isNotEmpty() && result.values.all { it })
+        pendingPermissionCallback = null
+    }
+
+    val requestWebPermission: (String, (Boolean) -> Unit) -> Unit = { kind, cb ->
+        val needed: Array<String> = when (kind) {
+            "camera" -> arrayOf(Manifest.permission.CAMERA)
+            "mic" -> arrayOf(Manifest.permission.RECORD_AUDIO)
+            "camera_mic" -> arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
+            "geolocation" -> arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+            else -> emptyArray()
+        }
+        val missing = needed.filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        when {
+            needed.isEmpty() -> {
+                cb(false)
+                Toast.makeText(context, "$kind is not supported", Toast.LENGTH_SHORT).show()
+            }
+            missing.isEmpty() -> cb(true)
+            else -> {
+                pendingPermissionCallback = cb
+                permissionLauncher.launch(missing.toTypedArray())
+            }
+        }
+    }
+
     val isBookmarked by viewModel.isBookmarked(tab?.url ?: "").collectAsState(initial = false)
+    val closedTabs by viewModel.closedTabs.collectAsState()
 
     // Sync omnibox with current tab when tab changes
     LaunchedEffect(tab?.id, tab?.url) {
@@ -220,18 +271,48 @@ fun BrowserScreen(
                         }
                     },
                     onRequestPermission = { perm, cb ->
-                        // In real Chrome-like, show permission prompt
-                        // For now, deny and show toast with option to allow in settings
-                        cb(false)
-                        Toast.makeText(context, "Permission $perm blocked. Allow in site settings.", Toast.LENGTH_SHORT).show()
+                        requestWebPermission(perm, cb)
                     },
                     findQuery = findQuery,
                     isFindActive = isFindActive,
                     onFindResult = { active, total ->
                         findMatch = active to total
                     },
+                    // Without this the WebView reference stayed null forever, so
+                    // Back / Forward / Reload / Find-next did nothing at all.
+                    onWebViewReady = { wv ->
+                        webViewInstance = wv
+                        viewModel.setActiveWebView(wv)
+                    },
+                    onLoadStarted = { viewModel.onPageLoadStarted() },
+                    onLoadFinished = { viewModel.onPageLoadFinished() },
+                    onOpenNewTab = { url -> viewModel.addTab(url) },
+                    customBlockDomains = customBlockDomains,
+                    scriptEngine = viewModel.scriptEngine,
                     modifier = Modifier.fillMaxSize()
                 )
+            }
+
+            // Developer-options performance overlay.
+            if (settings.showPerfOverlay && tab?.isHomePage() == false) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 4.dp, end = 4.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                    shape = MaterialTheme.shapes.extraSmall,
+                    tonalElevation = 2.dp
+                ) {
+                    Text(
+                        buildString {
+                            if (lastLoadMillis > 0) append("${lastLoadMillis}ms")
+                            else append("—")
+                            if (blockedCount > 0) append("  •  $blockedCount blocked")
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
             }
         }
 
@@ -293,6 +374,36 @@ fun BrowserScreen(
                         tab?.let { context.openUrlExternally(it.url) }
                         showMenu = false
                     },
+                    onNewTab = {
+                        viewModel.addTab()
+                        showMenu = false
+                    },
+                    onNewIncognitoTab = {
+                        viewModel.addPrivateTab()
+                        showMenu = false
+                    },
+                    onReload = {
+                        webViewInstance?.let { wv ->
+                            if (tab?.isLoading == true) wv.stopLoading() else wv.reload()
+                        }
+                        showMenu = false
+                    },
+                    onRestoreClosedTab = {
+                        viewModel.restoreLastClosedTab()
+                        showMenu = false
+                    },
+                    canRestoreClosedTab = closedTabs.isNotEmpty(),
+                    onDevTools = {
+                        showMenu = false
+                        onDevToolsClick()
+                    },
+                    devToolsEnabled = settings.devToolsEnabled,
+                    onUserScripts = {
+                        showMenu = false
+                        onUserScriptsClick()
+                    },
+                    blockedCount = blockedCount,
+                    adBlockEnabled = settings.adBlockEnabled,
                     onClose = { showMenu = false }
                 )
             }

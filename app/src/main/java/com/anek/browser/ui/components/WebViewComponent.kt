@@ -10,6 +10,7 @@ import android.net.http.SslError
 import android.os.Build
 import android.os.Message
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.*
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
@@ -20,6 +21,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -33,6 +36,10 @@ import com.anek.browser.browser.Tab
 import com.anek.browser.data.datastore.BrowserSettings
 import com.anek.browser.downloads.DownloadHandler
 import com.anek.browser.utils.Constants
+import com.anek.browser.web.AdBlocker
+import com.anek.browser.web.ConsoleLevel
+import com.anek.browser.web.ConsoleLog
+import com.anek.browser.web.UserScriptEngine
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -50,6 +57,13 @@ fun WebViewComponent(
     isFindActive: Boolean = false,
     onFindResult: (Int, Int) -> Unit = { _, _ -> },
     onShowFileChooser: ((ValueCallback<Array<Uri>>, Intent) -> Unit)? = null,
+    // --- added for v1.2.0 ---
+    onOpenNewTab: (String) -> Unit = {},
+    onWebViewReady: (WebView?) -> Unit = {},
+    onLoadStarted: () -> Unit = {},
+    onLoadFinished: () -> Unit = {},
+    customBlockDomains: Set<String> = emptySet(),
+    scriptEngine: UserScriptEngine? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -59,6 +73,44 @@ fun WebViewComponent(
     var customView by remember { mutableStateOf<android.view.View?>(null) }
     var customViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
     var filePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+
+    /*
+     * Mirrors of the settings/callbacks captured at factory time.
+     *
+     * A WebView's WebViewClient is installed once, in the AndroidView factory,
+     * and that closure would otherwise pin the *first* values of these
+     * parameters forever. Reading through these refs keeps the client current
+     * without recreating the WebView (which would reload the page and lose all
+     * state — the single biggest source of jank in the previous version).
+     */
+    val settingsRef = remember { mutableStateOf(browserSettings) }
+    settingsRef.value = browserSettings
+    val blockDomainsRef = remember { mutableStateOf(customBlockDomains) }
+    blockDomainsRef.value = customBlockDomains
+    val scriptsEnabledRef = remember { mutableStateOf(true) }
+    scriptsEnabledRef.value = browserSettings.userscriptsEnabled
+    val engineRef = remember { mutableStateOf(scriptEngine) }
+    engineRef.value = scriptEngine
+    val navStateRef = remember { mutableStateOf(onNavigationStateChanged) }
+    navStateRef.value = onNavigationStateChanged
+    val newTabRef = remember { mutableStateOf(onOpenNewTab) }
+    newTabRef.value = onOpenNewTab
+    val loadStartRef = remember { mutableStateOf(onLoadStarted) }
+    loadStartRef.value = onLoadStarted
+    val loadFinishRef = remember { mutableStateOf(onLoadFinished) }
+    loadFinishRef.value = onLoadFinished
+    val pageFinishedRef = remember { mutableStateOf(onPageFinished) }
+    pageFinishedRef.value = onPageFinished
+    val titleRef = remember { mutableStateOf(onTitleChanged) }
+    titleRef.value = onTitleChanged
+    val urlRef = remember { mutableStateOf(onUrlChanged) }
+    urlRef.value = onUrlChanged
+    val progressRef = remember { mutableStateOf(onProgressChanged) }
+    progressRef.value = onProgressChanged
+    val permissionRef = remember { mutableStateOf(onRequestPermission) }
+    permissionRef.value = onRequestPermission
+    val findResultRef = remember { mutableStateOf(onFindResult) }
+    findResultRef.value = onFindResult
 
     val fileChooserLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -81,15 +133,21 @@ fun WebViewComponent(
     LaunchedEffect(findQuery, isFindActive) {
         webViewRef?.let { wv ->
             if (isFindActive && findQuery.isNotBlank()) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-                    wv.findAllAsync(findQuery)
-                } else {
-                    @Suppress("DEPRECATION")
-                    wv.findAll(findQuery)
-                }
+                wv.findAllAsync(findQuery)
             } else {
                 wv.clearMatches()
             }
+        }
+    }
+
+    // Keep the screen awake while a video is fullscreen, per the user's setting.
+    val activity = context as? Activity
+    LaunchedEffect(customView, browserSettings.keepScreenOnVideo) {
+        val window = activity?.window ?: return@LaunchedEffect
+        if (customView != null && browserSettings.keepScreenOnVideo) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 
@@ -113,7 +171,7 @@ fun WebViewComponent(
                 },
                 onHome = {
                     errorState = null
-                    onUrlChanged(Constants.HOME_PAGE_URL)
+                    urlRef.value(Constants.HOME_PAGE_URL)
                 },
                 onBack = {
                     errorState = null
@@ -129,78 +187,163 @@ fun WebViewComponent(
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
 
-                        // Security hardening - remove risky JS interfaces
+                        // Security hardening - remove risky legacy JS bridges.
                         removeJavascriptInterface("searchBoxJavaBridge_")
                         removeJavascriptInterface("accessibility")
                         removeJavascriptInterface("accessibilityTraversal")
 
+                        // Unique per-WebView data directory would be needed for
+                        // true multi-process isolation; a single shared profile is
+                        // what a normal browser wants, so keep the default.
+                        isHorizontalScrollBarEnabled = false
+                        overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
+
+                        val s = settingsRef.value
                         val ws = this.settings
-                        ws.javaScriptEnabled = browserSettings.javaScriptEnabled
+                        ws.javaScriptEnabled = s.javaScriptEnabled
                         ws.domStorageEnabled = true
                         ws.databaseEnabled = true
                         ws.allowFileAccess = false
                         ws.allowContentAccess = true
+                        @Suppress("DEPRECATION")
                         ws.allowFileAccessFromFileURLs = false
+                        @Suppress("DEPRECATION")
                         ws.allowUniversalAccessFromFileURLs = false
                         ws.javaScriptCanOpenWindowsAutomatically = true
                         ws.setSupportMultipleWindows(true)
-                        ws.loadsImagesAutomatically = true
+                        ws.loadsImagesAutomatically = s.imagesEnabled
+                        ws.blockNetworkImage = !s.imagesEnabled
                         ws.useWideViewPort = true
                         ws.loadWithOverviewMode = true
-                        ws.builtInZoomControls = browserSettings.zoomControls
+                        ws.builtInZoomControls = s.zoomControls
                         ws.displayZoomControls = false
-                        ws.textZoom = browserSettings.textScaling
+                        ws.textZoom = s.textScaling
                         ws.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                         ws.cacheMode = WebSettings.LOAD_DEFAULT
-                        ws.userAgentString = buildUserAgent(browserSettings, tab.isDesktopMode, ctx)
+                        ws.userAgentString = buildUserAgent(s, tab.isDesktopMode, ctx)
+                        // Allows autoplay so embedded video actually starts.
                         ws.mediaPlaybackRequiresUserGesture = false
+                        // Renders off-screen tiles ahead of scroll: smoother scrolling.
                         ws.offscreenPreRaster = true
+                        ws.setSupportZoom(true)
+                        ws.javaScriptCanOpenWindowsAutomatically = true
 
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            ws.safeBrowsingEnabled = browserSettings.safeBrowsing
+                            ws.safeBrowsingEnabled = s.safeBrowsing
                         }
+                        applyForceDark(this, s)
 
                         val cookieManager = CookieManager.getInstance()
                         cookieManager.setAcceptCookie(true)
-                        cookieManager.setAcceptThirdPartyCookies(this, !browserSettings.blockThirdPartyCookies)
+                        cookieManager.setAcceptThirdPartyCookies(this, !s.blockThirdPartyCookies)
 
                         webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+
+                            override fun shouldInterceptRequest(
+                                view: WebView?,
+                                request: WebResourceRequest?
+                            ): WebResourceResponse? {
+                                val url = request?.url?.toString() ?: return null
+                                val st = settingsRef.value
+                                val isMain = request.isForMainFrame
+
+                                // Never filter the top-level document or internal schemes.
+                                if (!isMain && (st.adBlockEnabled || st.trackerBlockEnabled ||
+                                        blockDomainsRef.value.isNotEmpty())
+                                ) {
+                                    if (AdBlocker.shouldBlock(
+                                            url,
+                                            st.adBlockEnabled,
+                                            st.trackerBlockEnabled,
+                                            blockDomainsRef.value
+                                        )
+                                    ) {
+                                        return AdBlocker.emptyResponse(url)
+                                    }
+                                }
+                                return super.shouldInterceptRequest(view, request)
+                            }
+
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView?,
+                                request: WebResourceRequest?
+                            ): Boolean {
                                 val url = request?.url?.toString() ?: return false
-                                // Handle external schemes
-                                if (url.startsWith("intent://") || url.startsWith("market://") || url.startsWith("tel:") || url.startsWith("mailto:") || url.startsWith("sms:")) {
-                                    return try {
-                                        ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        })
-                                        true
-                                    } catch (_: Exception) { false }
+
+                                // External schemes go to the system.
+                                if (!url.startsWith("http://", true) && !url.startsWith("https://", true)) {
+                                    val scheme = url.substringBefore(":", "").lowercase()
+                                    val external = scheme in setOf(
+                                        "intent", "market", "tel", "mailto", "sms",
+                                        "geo", "whatsapp", "upi", "youtube", "tg"
+                                    )
+                                    if (external) {
+                                        return try {
+                                            val intent = if (url.startsWith("intent://")) {
+                                                Intent.parseUri(url, Intent.URI_INTENT_SCHEME)
+                                            } else {
+                                                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                            }
+                                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            ctx.startActivity(intent)
+                                            true
+                                        } catch (_: Exception) {
+                                            false
+                                        }
+                                    }
+                                    // Unknown scheme: swallow it rather than erroring.
+                                    return true
+                                }
+
+                                if (request.isRedirect) return false
+
+                                val target = if (settingsRef.value.dataSaver) stripTrackingParams(url) else url
+                                if (target != url) {
+                                    view?.loadUrl(target)
+                                    return true
                                 }
                                 return false
                             }
 
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                 super.onPageStarted(view, url, favicon)
-                                url?.let { onUrlChanged(it) }
-                                onProgressChanged(0, true)
+                                url?.let { urlRef.value(it) }
+                                progressRef.value(0, true)
+                                loadStartRef.value()
                                 errorState = null
                                 sslErrorState = null
+
+                                // Early user scripts: run before the page settles.
+                                // NB: `this` here is the WebViewClient, so the
+                                // WebView must come from the callback parameter.
+                                if (scriptsEnabledRef.value && url != null && view != null) {
+                                    engineRef.value?.inject(view, url, atEnd = false)
+                                }
                             }
 
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
-                                view?.let {
-                                    onNavigationStateChanged(it.canGoBack(), it.canGoForward())
+                                view?.let { navStateRef.value(it.canGoBack(), it.canGoForward()) }
+                                progressRef.value(100, false)
+                                url?.let { pageFinishedRef.value(it) }
+                                view?.title?.let { titleRef.value(it) }
+                                loadFinishRef.value()
+
+                                // Late user scripts: DOM is ready.
+                                if (scriptsEnabledRef.value && url != null && view != null) {
+                                    engineRef.value?.inject(view, url, atEnd = true)
                                 }
-                                onProgressChanged(100, false)
-                                url?.let { onPageFinished(it) }
-                                view?.title?.let { onTitleChanged(it) }
                             }
 
-                            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                            override fun onReceivedError(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                                error: WebResourceError?
+                            ) {
                                 super.onReceivedError(view, request, error)
                                 if (request?.isForMainFrame == true) {
                                     val errorCode = error?.errorCode ?: -1
+                                    // ERR_UNKNOWN_URL_SCHEME / blocked sub-frames are not page errors.
                                     val description = error?.description?.toString() ?: "Unknown error"
                                     val failingUrl = request.url.toString()
                                     errorState = BrowserError(
@@ -217,7 +360,11 @@ fun WebViewComponent(
                                 }
                             }
 
-                            override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
+                            override fun onReceivedHttpError(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                                errorResponse: WebResourceResponse?
+                            ) {
                                 super.onReceivedHttpError(view, request, errorResponse)
                                 if (request?.isForMainFrame == true) {
                                     val status = errorResponse?.statusCode ?: 0
@@ -232,7 +379,11 @@ fun WebViewComponent(
                                 }
                             }
 
-                            override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
+                            override fun onReceivedSslError(
+                                view: WebView?,
+                                handler: SslErrorHandler?,
+                                error: SslError?
+                            ) {
                                 sslErrorState = error
                                 errorState = BrowserError(
                                     code = -11,
@@ -246,28 +397,46 @@ fun WebViewComponent(
 
                             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                                 super.doUpdateVisitedHistory(view, url, isReload)
-                                url?.let { onUrlChanged(it) }
+                                url?.let { urlRef.value(it) }
                             }
                         }
 
                         webChromeClient = object : WebChromeClient() {
                             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                 super.onProgressChanged(view, newProgress)
-                                onProgressChanged(newProgress, newProgress < 100)
+                                progressRef.value(newProgress, newProgress < 100)
                             }
 
                             override fun onReceivedTitle(view: WebView?, title: String?) {
                                 super.onReceivedTitle(view, title)
-                                title?.let { onTitleChanged(it) }
+                                title?.let { titleRef.value(it) }
                             }
 
                             override fun onReceivedIcon(view: WebView?, icon: Bitmap?) {
                                 super.onReceivedIcon(view, icon)
-                                // Favicon handling - we could save icon url
                             }
 
-                            override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
-                                onRequestPermission("geolocation") { granted ->
+                            override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
+                                if (settingsRef.value.captureConsole && message != null) {
+                                    ConsoleLog.add(
+                                        level = when (message.messageLevel()) {
+                                            ConsoleMessage.MessageLevel.ERROR -> ConsoleLevel.ERROR
+                                            ConsoleMessage.MessageLevel.WARNING -> ConsoleLevel.WARN
+                                            ConsoleMessage.MessageLevel.TIP -> ConsoleLevel.TIP
+                                            else -> ConsoleLevel.LOG
+                                        },
+                                        message = message.message() ?: "",
+                                        source = "${message.sourceId()}:${message.lineNumber()}"
+                                    )
+                                }
+                                return super.onConsoleMessage(message)
+                            }
+
+                            override fun onGeolocationPermissionsShowPrompt(
+                                origin: String?,
+                                callback: GeolocationPermissions.Callback?
+                            ) {
+                                permissionRef.value("geolocation") { granted ->
                                     if (granted) callback?.invoke(origin, true, false)
                                     else callback?.invoke(origin, false, false)
                                 }
@@ -284,7 +453,7 @@ fun WebViewComponent(
                                         needsAudio -> "mic"
                                         else -> "other"
                                     }
-                                    onRequestPermission(perm) { granted ->
+                                    permissionRef.value(perm) { granted ->
                                         if (granted) req.grant(req.resources)
                                         else req.deny()
                                     }
@@ -292,6 +461,12 @@ fun WebViewComponent(
                             }
 
                             override fun onShowCustomView(view: android.view.View?, callback: CustomViewCallback?) {
+                                // An existing fullscreen view must be dismissed first,
+                                // otherwise the video surface stays stuck on screen.
+                                if (customView != null) {
+                                    callback?.onCustomViewHidden()
+                                    return
+                                }
                                 customView = view
                                 customViewCallback = callback
                             }
@@ -302,25 +477,41 @@ fun WebViewComponent(
                                 customViewCallback = null
                             }
 
-                            override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?): Boolean {
-                                val newWebView = WebView(ctx).apply {
-                                    settings.javaScriptEnabled = browserSettings.javaScriptEnabled
-                                    webViewClient = object : WebViewClient() {
-                                        override fun shouldOverrideUrlLoading(v: WebView?, request: WebResourceRequest?): Boolean {
-                                            val url = request?.url?.toString() ?: return false
-                                            // Open in new tab - for now load in current
-                                            view?.loadUrl(url)
-                                            return true
-                                        }
+                            /**
+                             * Handles target="_blank" / window.open().
+                             *
+                             * The previous version created a WebView, handed it to
+                             * the transport and then never destroyed it — a leak of
+                             * a full renderer per popup. Here the temporary WebView
+                             * exists only long enough to learn the URL, then it is
+                             * destroyed and the URL is opened as a real new tab.
+                             */
+                            override fun onCreateWindow(
+                                view: WebView?,
+                                isDialog: Boolean,
+                                isUserGesture: Boolean,
+                                resultMsg: Message?
+                            ): Boolean {
+                                if (!isUserGesture) return false
+                                val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
+
+                                val temp = WebView(ctx)
+                                temp.webViewClient = object : WebViewClient() {
+                                    override fun shouldOverrideUrlLoading(
+                                        v: WebView?,
+                                        request: WebResourceRequest?
+                                    ): Boolean {
+                                        val url = request?.url?.toString()
+                                        runCatching { temp.destroy() }
+                                        if (!url.isNullOrBlank()) newTabRef.value(url)
+                                        return true
                                     }
                                 }
-                                val transport = resultMsg?.obj as? WebView.WebViewTransport
-                                transport?.webView = newWebView
-                                resultMsg?.sendToTarget()
+                                transport.webView = temp
+                                resultMsg.sendToTarget()
                                 return true
                             }
 
-                            // File upload support - Chrome-like
                             override fun onShowFileChooser(
                                 webView: WebView?,
                                 filePathCallbackParam: ValueCallback<Array<Uri>>?,
@@ -331,11 +522,17 @@ fun WebViewComponent(
                                 filePathCallback = filePathCallbackParam
 
                                 try {
-                                    val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
-                                        addCategory(Intent.CATEGORY_OPENABLE)
-                                        type = "*/*"
+                                    val intent = fileChooserParams?.createIntent()
+                                        ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                                            addCategory(Intent.CATEGORY_OPENABLE)
+                                            type = "*/*"
+                                        }
+                                    // Offer the camera as well, like Chrome does.
+                                    val chooser = Intent(Intent.ACTION_CHOOSER).apply {
+                                        putExtra(Intent.EXTRA_INTENT, intent)
+                                        putExtra(Intent.EXTRA_TITLE, "Choose an action")
                                     }
-                                    fileChooserLauncher.launch(intent)
+                                    fileChooserLauncher.launch(chooser)
                                 } catch (_: Exception) {
                                     filePathCallback = null
                                     filePathCallbackParam.onReceiveValue(null)
@@ -343,47 +540,83 @@ fun WebViewComponent(
                                 }
                                 return true
                             }
-
-                            override fun onJsAlert(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
-                                // Let WebView handle it natively - could customize with Compose dialog
-                                return super.onJsAlert(view, url, message, result)
-                            }
                         }
 
                         setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
                             DownloadHandler.downloadFile(ctx, url, userAgent, contentDisposition, mimetype)
                         }
 
-                        // Find listener
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-                            setFindListener { activeMatchOrdinal, numberOfMatches, isDoneCounting ->
-                                onFindResult(activeMatchOrdinal, numberOfMatches)
-                            }
+                        setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
+                            findResultRef.value(activeMatchOrdinal, numberOfMatches)
                         }
+
+                        webViewRef = this
+                        onWebViewReady(this)
 
                         if (tab.url != Constants.HOME_PAGE_URL && tab.url.isNotBlank()) {
                             loadUrl(tab.url)
                         }
-
-                        webViewRef = this
                     }
                 },
                 update = { webView ->
-                    webView.settings.javaScriptEnabled = browserSettings.javaScriptEnabled
-                    webView.settings.textZoom = browserSettings.textScaling
-                    webView.settings.builtInZoomControls = browserSettings.zoomControls
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(webView, !browserSettings.blockThirdPartyCookies)
-                    val desiredUA = buildUserAgent(browserSettings, tab.isDesktopMode, context)
-                    if (webView.settings.userAgentString != desiredUA) {
-                        webView.settings.userAgentString = desiredUA
+                    val s = browserSettings
+                    val ws = webView.settings
+
+                    if (ws.javaScriptEnabled != s.javaScriptEnabled) ws.javaScriptEnabled = s.javaScriptEnabled
+                    if (ws.textZoom != s.textScaling) ws.textZoom = s.textScaling
+                    if (ws.builtInZoomControls != s.zoomControls) ws.builtInZoomControls = s.zoomControls
+                    if (ws.loadsImagesAutomatically != s.imagesEnabled) {
+                        ws.loadsImagesAutomatically = s.imagesEnabled
+                        ws.blockNetworkImage = !s.imagesEnabled
+                    }
+                    CookieManager.getInstance().setAcceptThirdPartyCookies(webView, !s.blockThirdPartyCookies)
+                    applyForceDark(webView, s)
+
+                    val desiredUA = buildUserAgent(s, tab.isDesktopMode, context)
+                    if (ws.userAgentString != desiredUA) {
+                        ws.userAgentString = desiredUA
                         if (!tab.isHomePage()) webView.reload()
                     }
-                    if (tab.url != webView.url && tab.url != Constants.HOME_PAGE_URL) {
-                        if (tab.url.isNotBlank()) {
+
+                    /*
+                     * Only navigate when the requested URL genuinely differs from
+                     * what this WebView is showing. The old check compared against
+                     * `webView.url`, which is null during redirects and for
+                     * about:blank, causing spurious reloads mid-navigation.
+                     */
+                    if (tab.url.isNotBlank() && tab.url != Constants.HOME_PAGE_URL) {
+                        val current = webView.url
+                        val sameAsCurrent = current != null && urlsEquivalent(current, tab.url)
+                        val originalMatches = webView.originalUrl?.let { urlsEquivalent(it, tab.url) } == true
+                        if (!sameAsCurrent && !originalMatches && webView.progress >= 100) {
                             webView.loadUrl(tab.url)
                         }
                     }
-                    onNavigationStateChanged(webView.canGoBack(), webView.canGoForward())
+
+                    /*
+                     * Publish navigation state only when it actually changed.
+                     * Previously this ran on every recomposition and wrote to the
+                     * ViewModel's StateFlow each time, which re-triggered
+                     * recomposition — a feedback loop that showed up as scroll
+                     * jank and dropped frames.
+                     */
+                    val canBack = webView.canGoBack()
+                    val canForward = webView.canGoForward()
+                    if (canBack != tab.canGoBack || canForward != tab.canGoForward) {
+                        navStateRef.value(canBack, canForward)
+                    }
+                },
+                onRelease = { webView ->
+                    webView.stopLoading()
+                    webView.webChromeClient = null
+                    @Suppress("DEPRECATION")
+                    webView.webViewClient = WebViewClient()
+                    webView.loadUrl("about:blank")
+                    webView.clearHistory()
+                    webView.removeAllViews()
+                    webView.destroy()
+                    webViewRef = null
+                    onWebViewReady(null)
                 },
                 modifier = Modifier.fillMaxSize()
             )
@@ -399,13 +632,12 @@ fun WebViewComponent(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background)
+                        .background(android.graphics.Color.BLACK)
                 ) {
                     AndroidView(
                         factory = { view },
                         modifier = Modifier.fillMaxSize()
                     )
-                    // Exit fullscreen button
                     IconButton(
                         onClick = {
                             customView = null
@@ -419,23 +651,66 @@ fun WebViewComponent(
                         Icon(
                             Icons.Default.Close,
                             contentDescription = "Exit fullscreen",
-                            tint = MaterialTheme.colorScheme.onBackground
+                            tint = androidx.compose.ui.graphics.Color.White
                         )
                     }
                 }
             }
         }
     }
+}
 
-    DisposableEffect(Unit) {
-        onDispose {
-            webViewRef?.apply {
-                stopLoading()
-                clearHistory()
-                removeAllViews()
-                destroy()
-            }
+/** `true` when two URLs point at the same resource, ignoring fragment and trailing slash. */
+private fun urlsEquivalent(a: String, b: String): Boolean {
+    fun norm(u: String) = u.substringBefore('#').trimEnd('/').lowercase()
+    return norm(a) == norm(b)
+}
+
+/**
+ * Applies WebView's darkening of web content.
+ *
+ * `setAlgorithmicDarkeningAllowed` (API 33+ / Chrome 105+) supersedes the
+ * deprecated `setForceDark`. Both are wrapped because a missing or outdated
+ * WebView provider throws rather than no-ops.
+ */
+@Suppress("DEPRECATION")
+private fun applyForceDark(webView: WebView, s: BrowserSettings) {
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            androidx.webkit.WebViewCompat.setAlgorithmicDarkeningAllowed(webView, s.forceDarkWebContent)
+        } else {
+            androidx.webkit.WebViewCompat.setForceDark(
+                webView,
+                if (s.forceDarkWebContent) androidx.webkit.WebSettingsCompat.FORCE_DARK_ON
+                else androidx.webkit.WebSettingsCompat.FORCE_DARK_OFF
+            )
         }
+    } catch (_: Throwable) {
+        // Older providers may not implement either API.
+    }
+}
+
+/** Common tracking parameters, stripped when Data saver is on. */
+private val TRACKING_PARAMS = setOf(
+    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id",
+    "fbclid", "gclid", "gclsrc", "dclid", "msclkid", "yclid", "twclid",
+    "igshid", "mc_cid", "mc_eid", "s_kwcid", "_hsenc", "_hsmi", "vero_id",
+    "ref_src", "ref_url", "cmpid", "pk_campaign", "pk_kwd", "trk", "trkCampaign"
+)
+
+private fun stripTrackingParams(url: String): String {
+    if (!url.contains('?')) return url
+    return try {
+        val uri = Uri.parse(url)
+        val query = uri.query ?: return url
+        val kept = query.split('&').filter { pair ->
+            val key = pair.substringBefore('=').lowercase()
+            key.isNotEmpty() && key !in TRACKING_PARAMS
+        }
+        val base = url.substringBefore('?')
+        if (kept.isEmpty()) base else "$base?${kept.joinToString("&")}"
+    } catch (_: Exception) {
+        url
     }
 }
 
@@ -476,9 +751,13 @@ fun ErrorPage(
         contentAlignment = Alignment.Center
     ) {
         Column(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Spacer(Modifier.height(24.dp))
             Icon(
                 imageVector = when (error.type) {
                     ErrorType.SSL -> Icons.Default.Lock
@@ -542,7 +821,8 @@ fun ErrorPage(
                 Spacer(Modifier.height(12.dp))
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Wrapped so three buttons never overflow a narrow (≤360dp) screen.
+            FlowRowCompat {
                 OutlinedButton(onClick = onBack) { Text("Back") }
                 FilledTonalButton(onClick = onHome) { Text("Home") }
                 Button(onClick = onRetry) { Text("Reload") }
@@ -554,6 +834,17 @@ fun ErrorPage(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
             )
+            Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+/** A row that wraps instead of clipping on small phones. */
+@Composable
+private fun FlowRowCompat(content: @Composable RowScope.() -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        content = content
+    )
 }
