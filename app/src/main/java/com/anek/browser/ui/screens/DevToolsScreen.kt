@@ -178,7 +178,6 @@ fun DevToolsScreen(
                 DevCard("Feature flags", Icons.Default.Tune) {
                     DevSwitch("Load images", "Disable to save data and speed up pages", settings.imagesEnabled, actions.onImagesEnabled)
                     DevSwitch("Data saver", "Strip tracking query params from URLs", settings.dataSaver, actions.onDataSaver)
-                    DevSwitch("Prefetch", "Allow the page to prefetch linked resources", settings.prefetchEnabled, actions.onPrefetch)
                     DevSwitch("Block ads", "Built-in ad network list", settings.adBlockEnabled, actions.onAdBlock)
                     DevSwitch("Block trackers", "Analytics and cross-site tracking", settings.trackerBlockEnabled, actions.onTrackerBlock)
                     DevSwitch(

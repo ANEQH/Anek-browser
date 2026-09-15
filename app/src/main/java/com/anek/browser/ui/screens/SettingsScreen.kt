@@ -204,11 +204,14 @@ fun SettingsScreen(
                         checked = settings.keepScreenOnVideo,
                         onCheckedChange = onUpdateKeepScreenOn
                     )
-                    SettingsRowSwitch(
-                        title = "Background audio",
-                        subtitle = "Try to keep audio playing when the app is backgrounded",
-                        checked = settings.backgroundAudio,
-                        onCheckedChange = onUpdateBackgroundAudio
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    Text(
+                        "Background audio playback needs a foreground media service and is not " +
+                            "implemented yet — the setting is intentionally not exposed so it " +
+                            "cannot look like it works when it does not.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
                 }
             }

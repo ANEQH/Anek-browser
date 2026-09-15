@@ -468,6 +468,11 @@ fun WebViewComponent(
                             }
 
                             override fun onShowCustomView(view: android.view.View?, callback: CustomViewCallback?) {
+                                // Honour the "Fullscreen video" setting.
+                                if (!settingsRef.value.fullscreenVideo) {
+                                    callback?.onCustomViewHidden()
+                                    return
+                                }
                                 // An existing fullscreen view must be dismissed first,
                                 // otherwise the video surface stays stuck on screen.
                                 if (customView != null) {
